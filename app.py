@@ -72,19 +72,22 @@ def index():
     
     cursor.execute("SELECT DISTINCT state FROM stores ORDER BY state")
     states = [row[0] for row in cursor.fetchall()]
-    
+
+    # Initialize price variable to avoid UnboundLocalError
+    price = ""
+
     results = None
     if request.method == "POST":
         zipcode = request.form["zipcode"]
         radius = int(request.form.get("radius", ""))
         city = request.form.get("city", "")
         state = request.form.get("state", "")
-        price = request.form.get("price","")
+        price = request.form.get("price", "")  # Set price from the form data
         results = search_by_zip_upc(zipcode, radius, city, state, price)
 
     conn.close()
     
-    return render_template("index.html", results=results, cities=cities, states=states,price=price)
+    return render_template("index.html", results=results, cities=cities, states=states, price=price)
 
 
 
@@ -125,4 +128,4 @@ def get_cities():
 
     return jsonify(cities)
 
-
+app.run()
