@@ -115,7 +115,7 @@ def get_cities():
     state = request.args.get("state")
 
     if not state:
-        return jsonify([])  # Return an empty list if no state is selected
+        return jsonify([]) 
 
     conn = sqlite3.connect("stores.db")
     cursor = conn.cursor()
@@ -125,5 +125,4 @@ def get_cities():
 
     return jsonify(cities)
 
-if __name__ == "__main__":
-    app.run(debug=True)
+
