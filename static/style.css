@@ -1,0 +1,13 @@
+body {
+    background-color: #f8f9fa;
+}
+h1 {
+    color: #007bff;
+}
+.card {
+    border-radius: 10px;
+}
+.card img {
+    max-height: 120px;
+    object-fit: contain;
+}
