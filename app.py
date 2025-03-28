@@ -4,59 +4,94 @@ import csv
 import io
 import pgeocode
 from geopy.distance import geodesic
+
 app = Flask(__name__)
 app.secret_key = "admin"  
 
 
-def search_by_zip_upc(zipcode, radius, city="", state="",price=""):
-    conn = sqlite3.connect("stores.db")
-    cursor = conn.cursor()
+geocode_cache = {}
+
+def get_coordinates(zipcode):
+    """ Fetch coordinates from cache or geocode if not available. """
+    if zipcode in geocode_cache:
+        return geocode_cache[zipcode]
     
-    # Get ZIP code coordinates
     nomi = pgeocode.Nominatim("US")
     search_location = nomi.query_postal_code(zipcode)
-    search_coords = (search_location.latitude, search_location.longitude)
     
-    query = """
-        SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
-               i.name, i.msrp, i.image_url, i.item_url, 
-               si.price, si.salesfloor, si.backroom
-        FROM store_items si
-        JOIN stores s ON si.store_id = s.id
-        JOIN items i ON si.item_id = i.id
+    # Cache and return coordinates if valid
+    if search_location.latitude and search_location.longitude:
+        geocode_cache[zipcode] = (search_location.latitude, search_location.longitude)
+        return geocode_cache[zipcode]
+    
+    return None  # Return None if coordinates are not found
+
+def search_by_zip_upc(zipcode, radius, city="", state="", price=""):
     """
-    
-    filters = []
-    params = []
+    Optimized function to search stores by ZIP code, city, state, and price,
+    and filter by proximity (radius).
+    """
+    try:
+        with sqlite3.connect("stores.db") as conn:
+            cursor = conn.cursor()
 
-    if city:
-        filters.append("s.city = ?")
-        params.append(city)
+            # Get coordinates for the search location (zipcode)
+            search_coords = get_coordinates(zipcode)
+            if not search_coords:
+                raise ValueError("Invalid ZIP code coordinates")
 
-    if state:
-        filters.append("s.state = ?")
-        params.append(state)
-    if price:
-        filters.append("si.price <= ?")
-        params.append(price)
-    if filters:
-        query += " WHERE " + " AND ".join(filters)
+            # Build the SQL query with filters
+            query = """
+                SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
+                       i.name, i.msrp, i.image_url, i.item_url, 
+                       si.price, si.salesfloor, si.backroom
+                FROM store_items si
+                JOIN stores s ON si.store_id = s.id
+                JOIN items i ON si.item_id = i.id
+            """
+            
+            filters = []
+            params = []
 
-    cursor.execute(query, params)
-    results = cursor.fetchall()
-    
+            # Adding filters to the query
+            if city:
+                filters.append("s.city = ?")
+                params.append(city)
+            if state:
+                filters.append("s.state = ?")
+                params.append(state)
+            if price:
+                filters.append("si.price <= ?")
+                params.append(price)
 
-    nearby_stores = []
-    for row in results:
-        store_location = nomi.query_postal_code(row[3])  # Zipcode
-        store_coords = (store_location.latitude, store_location.longitude)
-        
-        distance = geodesic(search_coords, store_coords).miles
-        if distance <= radius:
-            nearby_stores.append(row)
+            if filters:
+                query += " WHERE " + " AND ".join(filters)
 
-    conn.close()
-    return nearby_stores
+            # Execute the query
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+
+            nearby_stores = []
+            
+            # Process each result, checking distance from the search location
+            for row in results:
+                store_zip = row[3]  # The ZIP code for the store
+                store_coords = get_coordinates(store_zip)
+                
+                # Skip if geocoding failed for this store's ZIP code
+                if not store_coords:
+                    continue
+                
+                # Calculate the distance between search location and store location
+                distance_miles = geodesic(search_coords, store_coords).miles
+                if distance_miles <= radius:
+                    nearby_stores.append(row)
+
+            return nearby_stores
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return []
 
 
 
@@ -128,3 +163,5 @@ def get_cities():
 
     return jsonify(cities)
 
+
+app.run()
