@@ -130,4 +130,4 @@ def get_cities():
 
     return jsonify(cities)
 
-app.run(debug=True)
+ 
