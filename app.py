@@ -10,7 +10,7 @@ app.secret_key = "admin"
 
 
 
-def search_by_zip_upc(motherzipcode, city="", state="", price=""):
+def search_by_zip_upc( upc="", motherzipcode="", city="", state="", price=""):
     conn = sqlite3.connect("stores.db")
     cursor = conn.cursor()
 
@@ -25,10 +25,13 @@ def search_by_zip_upc(motherzipcode, city="", state="", price=""):
 
     filters = []
     params = []
+    if upc:
+        filters.append("i.upc = ?")
+        params.append(upc)
 
-    # Add mandatory motherZip filter
-    filters.append("s.motherZip = ?")
-    params.append(motherzipcode)
+    if motherzipcode:
+        filters.append("s.motherZip = ?")
+        params.append(motherzipcode)
 
     if city:
         filters.append("s.city = ?")
@@ -73,14 +76,14 @@ def index():
     results = None
 
     if request.method == "POST":
-        zipcode = request.form["zipcode"]
+        upc = request.form.get("upc")
+        zipcode = request.form.get("zipcode")
         city = request.form.get("city", "")
         state = request.form.get("state", "")
         price = request.form.get("price", "")
 
-        results = search_by_zip_upc(zipcode, city, state, price)
+        results = search_by_zip_upc(upc,zipcode, city, state, price)
 
-        # Store search results in session
         session["search_results"] = results  
 
     conn.close()
@@ -127,3 +130,4 @@ def get_cities():
 
     return jsonify(cities)
 
+app.run(debug=True)

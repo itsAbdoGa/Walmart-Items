@@ -13,14 +13,12 @@
         <div class="card p-4 shadow-sm">
             <form method="POST" class="row g-3">
                 <div class="col-md-6">
-                    <input type="text" name="zipcode" class="form-control" placeholder="Enter Zipcode" value="{{ request.form.get('zipcode', '') }}" required>
+                    <input type="text" name="zipcode" class="form-control" placeholder="Enter Zipcode" value="{{ request.form.get('zipcode', '') }}" >
                 </div>
                 <div class="col-md-6">
-                    <input type="text" name="upc" class="form-control" placeholder="Enter UPC" value="{{ request.form.get('upc', '') }}" required>
+                    <input type="text" name="upc" class="form-control" placeholder="Enter UPC" value="{{ request.form.get('upc', '') }}" >
                 </div>
-                <div class="col-12 text-center">
-                    <button type="submit" class="btn btn-primary">Search</button>
-                </div>
+                
                 <div class="col-md-6">
                     <label for="state" class="form-label">State</label>
                     <select name="state" id="state" class="form-select">
@@ -41,6 +39,9 @@
                     </select>
                     <label for="price" class="form-label">Max Price</label>
                     <input type="text" name="price" class="form-control" placeholder="Enter Price" value="{{ request.form.get('price', '') }}">
+                </div>
+                <div class="col-12 text-center"></div>
+                    <button type="submit" class="btn btn-primary">Search</button>
                 </div>
             </form>
         </div>
