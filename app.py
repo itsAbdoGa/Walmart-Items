@@ -127,5 +127,3 @@ def get_cities():
 
     return jsonify(cities)
 
-if __name__ == "__main__":
-    app.run(debug=True)
