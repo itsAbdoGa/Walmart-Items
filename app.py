@@ -2,36 +2,33 @@ from flask import Flask, request, render_template, Response, session , jsonify
 import sqlite3
 import csv
 import io
-import pgeocode
-from geopy.distance import geodesic
+
+
+
 app = Flask(__name__)
 app.secret_key = "admin"  
 
 
-import sqlite3
-from geopy.distance import geodesic
 
-def search_by_zip_upc(zipcode, radius, city="", state="", price=""):
+def search_by_zip_upc(motherzipcode, city="", state="", price=""):
     conn = sqlite3.connect("stores.db")
     cursor = conn.cursor()
-    
-    # Get ZIP code coordinates (cache to avoid repeated API calls)
-    nomi = pgeocode.Nominatim("US")
-    search_location = nomi.query_postal_code(zipcode)
-    search_coords = (search_location.latitude, search_location.longitude)
-    
-    # Query stores and items directly, avoid fetching unnecessary data
+
     query = """
         SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
                i.name, i.msrp, i.image_url, i.item_url, 
                si.price, si.salesfloor, si.backroom
         FROM store_items si
-        JOIN stores s ON si.store_id = s.id
+        JOIN stores s ON si.store_id = s.id 
         JOIN items i ON si.item_id = i.id
     """
-    
+
     filters = []
     params = []
+
+    # Add mandatory motherZip filter
+    filters.append("s.motherZip = ?")
+    params.append(motherzipcode)
 
     if city:
         filters.append("s.city = ?")
@@ -40,40 +37,23 @@ def search_by_zip_upc(zipcode, radius, city="", state="", price=""):
     if state:
         filters.append("s.state = ?")
         params.append(state)
+
     if price:
         filters.append("si.price <= ?")
         params.append(price)
+
+    # Only add WHERE clause if there are filters
     if filters:
         query += " WHERE " + " AND ".join(filters)
 
     cursor.execute(query, params)
-    
-    nearby_stores = []
-    
-    # Pre-fetch store coordinates and cache them to avoid multiple geocoding calls
-    store_coords_cache = {}
-    
-    for row in cursor:
-        store_zip = row[3]
-        
-        # Check if coordinates are already cached
-        if store_zip not in store_coords_cache:
-            store_location = nomi.query_postal_code(store_zip)
-            store_coords_cache[store_zip] = (store_location.latitude, store_location.longitude)
-        
-        store_coords = store_coords_cache[store_zip]
-        distance = geodesic(search_coords, store_coords).miles
-        
-        # If within the radius, add the store to the results
-        if distance <= radius:
-            nearby_stores.append(row)
+    results = cursor.fetchall()
 
     conn.close()
-    return nearby_stores
+    return results
 
 
-
-
+    
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -90,19 +70,23 @@ def index():
 
     # Initialize price variable to avoid UnboundLocalError
     price = ""
-
     results = None
+
     if request.method == "POST":
         zipcode = request.form["zipcode"]
-        radius = int(request.form.get("radius", ""))
         city = request.form.get("city", "")
         state = request.form.get("state", "")
-        price = request.form.get("price", "")  # Set price from the form data
-        results = search_by_zip_upc(zipcode, radius, city, state, price)
+        price = request.form.get("price", "")
+
+        results = search_by_zip_upc(zipcode, city, state, price)
+
+        # Store search results in session
+        session["search_results"] = results  
 
     conn.close()
     
     return render_template("index.html", results=results, cities=cities, states=states, price=price)
+
 
 
 
@@ -143,3 +127,5 @@ def get_cities():
 
     return jsonify(cities)
 
+if __name__ == "__main__":
+    app.run(debug=True)
