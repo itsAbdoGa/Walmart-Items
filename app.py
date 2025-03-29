@@ -12,7 +12,7 @@ import time
 app = Flask(__name__)
 app.secret_key = "admin"  
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
-
+MAX_LOGS = 10
 
 # Constants
 UPLOAD_FOLDER = "uploads"
@@ -24,6 +24,10 @@ API_URL = "http://5.75.246.251:9099/stock/store"
 
 # Helper functions
 def log_message(message):
+    if 'logs' not in session:
+        session['logs'] = []
+    session['logs'] = [message] + session['logs'][:MAX_LOGS - 1]  # Keep recent
+    session.modified = True  # Force save
     """Log messages to console and emit to socket"""
     print(f"Logging: {message}", flush=True)
     socketio.emit('log_update', message , namespace="/")
@@ -206,6 +210,15 @@ def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price=""):
     return results
 
 # Routes
+@app.route('/clear_logs', methods=['POST'])
+def clear_logs():
+    if 'logs' in session:
+        session.pop('logs')  # Remove only logs (keeps other session data)
+        session.modified = True  # Force save
+        return jsonify({"message": "Logs cleared successfully"})
+    return jsonify({"message": "No logs to clear"}), 404
+
+
 @app.route("/adminpanel")
 def admin():
     """Admin panel route"""
