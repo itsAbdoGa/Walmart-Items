@@ -7,7 +7,7 @@ import csv
 import os
 import io
 import time
-
+import sys
 # Initialize Flask app and SocketIO
 app = Flask(__name__)
 app.secret_key = "admin"  
@@ -21,6 +21,7 @@ if not os.path.exists(UPLOAD_FOLDER):
 UPCZIP_DB = "upczip.db"
 DATABASE = "stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
+MAX_RESULTS_IN_SESSION = 10
 
 # Helper functions
 def log_message(message):
@@ -275,6 +276,12 @@ def manual_input():
         return jsonify({"message": "Manual entry processed successfully"})
     else:
         return jsonify({"message": "Failed to process entry"}), 400
+    
+
+def get_size_kb(data):
+    """Return the size of an object in kilobytes."""
+    return round(sys.getsizeof(json.dumps(data)) / 1024, 2)  # Convert bytes to KB
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -300,7 +307,25 @@ def index():
         price = request.form.get("price", "")
 
         results = search_by_zip_upc(upc, zipcode, city, state, price)
-        session["search_results"] = results  
+        results_size_kb = get_size_kb(results)
+        print(f"Found : {results_size_kb} KB Worth of data")
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Write header
+        writer.writerow(["Name", "Store Address", "Store Price", "Salesfloor", "Backroom" , "City" , "State"])
+
+        # Write data
+        for row in results:
+            writer.writerow([row[5], row[0], row[9], row[10], row[11] , row[1] , row[2]])
+
+        output.seek(0)
+
+        return Response(
+            output, 
+            mimetype="text/csv", 
+            headers={"Content-Disposition": "attachment;filename=search_results.csv"}
+        )
 
     conn.close()
     
