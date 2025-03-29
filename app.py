@@ -338,4 +338,3 @@ def get_cities():
 # Initialize databases on startup
 init_databases()
 
-socketio.run(app=app,debug=True)
