@@ -79,6 +79,8 @@
         <button onclick="submitManualEntry()">Submit Entry</button>
 
         <h3>Live Log</h3>
+        <button onclick="clearLogs()" class="btn btn-danger">Clear All Logs</button>
+
         <div id="log"></div>
     </div>
 
@@ -129,6 +131,32 @@
             logDiv.innerHTML += "<p>" + message + "</p>";
             logDiv.scrollTop = logDiv.scrollHeight;
         });
+        document.getElementById("manualUPC").addEventListener("input", function() {
+            localStorage.setItem("upc", this.value);
+          });
+          document.getElementById("manualZIP").addEventListener("input", function() {
+            localStorage.setItem("zip", this.value);
+          });
+          
+          // Load saved inputs on page load
+          window.addEventListener("load", function() {
+            document.getElementById("manualUPC").value = localStorage.getItem("upc") || "";
+            document.getElementById("manualZIP").value = localStorage.getItem("zip") || "";
+          });
+          function clearLogs() {
+            fetch("/clear_logs", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            })
+            .then(response => response.json())
+            .then(data => {
+              // Clear the UI log display
+              document.getElementById("log").innerHTML = "";
+              // Optional: Show a confirmation
+              alert(data.message || "Logs cleared!");
+            })
+            .catch(error => console.error("Error:", error));
+          }
     </script>
 </body>
 </html>
