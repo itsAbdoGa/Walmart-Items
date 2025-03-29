@@ -42,7 +42,7 @@
                     <input type="text" name="price" class="form-control" placeholder="Enter Price" value="{{ request.form.get('price', '') }}">
                 </div>
                 <div class="col-12 text-center"></div>
-                    <button type="submit" class="btn btn-primary">Search</button>
+                    <button type="submit" class="btn btn-primary">Export</button>
                 </div>
             </form>
         </div>
@@ -80,7 +80,6 @@
                         
                     </tr>
                     {% endfor %}
-                    <a href="{{ url_for('export_data') }}" class="btn btn-success my-3">Export CSV</a>
                     
 
                 </tbody>
