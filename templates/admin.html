@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        }
+        h2 {
+            color: #333;
+        }
+        input, button {
+            margin-top: 10px;
+            padding: 10px;
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #007BFF;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #log {
+            margin-top: 20px;
+            padding: 10px;
+            background: #222;
+            color: #0f0;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            text-align: left;
+            border-radius: 5px;
+        }
+        .return-button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin-top: 10px;
+            background-color: #28a745; /* Green */
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        .return-button:hover {
+            background-color: #218838; /* Darker green */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Admin Panel</h2>
+        <a href="{{ url_for('index') }}" class="return-button" >Return to  Search</a>
+        <input type="file" id="csvFile" accept=".csv">
+        <button onclick="uploadCSV()">Upload CSV</button>
+
+        <hr>
+        
+        <input type="text" id="manualUPC" placeholder="Enter UPC" >
+        <input type="text" id="manualZIP" placeholder="Enter ZIP Code">
+        <button onclick="submitManualEntry()">Submit Entry</button>
+
+        <h3>Live Log</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        var socket = io(); 
+
+        function uploadCSV() {
+            var fileInput = document.getElementById("csvFile");
+            if (!fileInput.files.length) {
+                alert("Please select a CSV file to upload.");
+                return;
+            }
+            var file = fileInput.files[0];
+            var formData = new FormData();
+            formData.append("file", file);
+
+            fetch("/upload_csv", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => alert(data.message))
+            .catch(error => console.error("Error:", error));
+        }
+
+        function submitManualEntry() {
+            var upc = document.getElementById("manualUPC").value;
+            var zip = document.getElementById("manualZIP").value;
+
+            if (!upc || !zip) {
+                alert("Please enter both UPC and ZIP code.");
+                return;
+            }
+
+            fetch("/manual_input", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ upc: upc, zip: zip })
+            })
+            .then(response => response.json())
+            .then(data => alert(data.message))
+            .catch(error => console.error("Error:", error));
+        }
+
+        socket.on("log_update", function(data) {
+            var logDiv = document.getElementById("log");
+            var message = typeof data === "string" ? data : data.message; // Handle both string & object
+            logDiv.innerHTML += "<p>" + message + "</p>";
+            logDiv.scrollTop = logDiv.scrollHeight;
+        });
+    </script>
+</body>
+</html>
