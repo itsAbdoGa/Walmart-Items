@@ -7,12 +7,12 @@ import csv
 import os
 import io
 import time
-from datetime import datetime
 
 # Initialize Flask app and SocketIO
 app = Flask(__name__)
 app.secret_key = "admin"  
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+
 
 # Constants
 UPLOAD_FOLDER = "uploads"
@@ -26,7 +26,8 @@ API_URL = "http://5.75.246.251:9099/stock/store"
 def log_message(message):
     """Log messages to console and emit to socket"""
     print(f"Logging: {message}", flush=True)
-    socketio.emit('log_update', message)
+    socketio.emit('log_update', message , namespace="/")
+    socketio.sleep(0)
 
 def init_databases():
     """Initialize all necessary database tables"""
@@ -337,6 +338,4 @@ def get_cities():
 # Initialize databases on startup
 init_databases()
 
-
-
-
+socketio.run(app=app,debug=True)
