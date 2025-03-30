@@ -85,7 +85,8 @@
     </div>
 
     <script>
-        var socket = io(); 
+        var socket = io();
+        let uploadAbortController = null;
 
         function uploadCSV() {
             var fileInput = document.getElementById("csvFile");
@@ -93,17 +94,64 @@
                 alert("Please select a CSV file to upload.");
                 return;
             }
+        
+            // Create a cancel button dynamically if it doesn't exist
+            var cancelBtn = document.getElementById("cancelBtn");
+            if (!cancelBtn) {
+                cancelBtn = document.createElement("button");
+                cancelBtn.id = "cancelBtn";
+                cancelBtn.textContent = "Cancel Upload";
+                cancelBtn.className = "btn btn-danger";
+                cancelBtn.style.marginLeft = "10px";
+                cancelBtn.onclick = cancelUpload;
+                fileInput.parentNode.appendChild(cancelBtn);
+            }
+            cancelBtn.style.display = "inline-block";
+        
+            // Disable upload button during processing
+            var uploadBtn = document.querySelector("#csvFile").nextElementSibling;
+            uploadBtn.disabled = true;
+        
+            // Create new AbortController for this upload
+            uploadAbortController = new AbortController();
+        
             var file = fileInput.files[0];
             var formData = new FormData();
             formData.append("file", file);
-
+        
             fetch("/upload_csv", {
                 method: "POST",
-                body: formData
+                body: formData,
+                signal: uploadAbortController.signal  // Add abort signal
             })
-            .then(response => response.json())
-            .then(data => alert(data.message))
-            .catch(error => console.error("Error:", error));
+            .then(response => {
+                if (!response.ok) throw new Error(`Server returned ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                alert(data.message);
+            })
+            .catch(error => {
+                if (error.name !== 'AbortError') {  // Don't show error if cancelled
+                    console.error("Error:", error);
+                    alert("Upload failed: " + error.message);
+                }
+            })
+            .finally(() => {
+                // Clean up
+                if (cancelBtn) cancelBtn.style.display = "none";
+                if (uploadBtn) uploadBtn.disabled = false;
+                uploadAbortController = null;
+            });
+        }
+        
+        function cancelUpload() {
+            if (uploadAbortController) {
+                uploadAbortController.abort();
+                // Optional: Notify backend to stop processing
+                fetch("/cancel_upload", { method: "POST" })
+                    .catch(e => console.log("Cancel notification failed:", e));
+            }
         }
 
         function submitManualEntry() {
