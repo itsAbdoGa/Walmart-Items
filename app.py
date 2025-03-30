@@ -8,11 +8,15 @@ import os
 import io
 import time
 import sys
+from threading import Lock , Event
 # Initialize Flask app and SocketIO
 app = Flask(__name__)
 app.secret_key = "admin"  
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 MAX_LOGS = 10
+csv_processing = False
+processing_lock = Lock()
+upload_cancel_event = Event()
 
 # Constants
 UPLOAD_FOLDER = "uploads"
@@ -106,8 +110,8 @@ def store_upc_zip(upc, zip_code):
 
 def process_entry(upc, zip_code):
     """Process a single UPC-ZIP entry by sending a request and storing data"""
-    if not upc:
-        log_message("Skipping entry with missing UPC")
+    if not upc or not zip_code:
+        log_message("Skipping entry with missing UPC or Zipcode")
         return False
         
     store_upc_zip(upc, zip_code)
@@ -228,29 +232,65 @@ def admin():
 @app.route("/upload_csv", methods=["POST"])
 def upload_csv():
     """Handle CSV file upload and process each entry"""
-    if "file" not in request.files:
-        return jsonify({"message": "No file provided"}), 400
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"message": "No selected file"}), 400
-
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
-    log_message("CSV uploaded. Processing...")
-
-    success_count = 0
-    error_count = 0
+    global csv_processing,upload_cancel_event
     
-    with open(filepath, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            upc = row.get("UPC")
-            zip_code = row.get("Zip")
-            if process_entry(upc, zip_code):
-                success_count += 1
-            else:
-                error_count += 1
+    with processing_lock:
+        if csv_processing:
+            return jsonify({"message": "ERROR: Another file is already being processed"}), 429
+        csv_processing = True
+        upload_cancel_event.clear()  # Reset cancellation flag
+
+    try:
+        if "file" not in request.files:
+            return jsonify({"message": "No file provided"}), 400
+
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"message": "No selected file"}), 400
+
+        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(filepath)
+        log_message("CSV uploaded. Processing...")
+
+        success_count = 0
+        error_count = 0
+        
+        # First pass: header validation
+        with open(filepath, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            headers = next(reader, [])
+            
+        if not {"UPC", "Zip"}.issubset(set(headers)):
+            os.remove(filepath)
+            log_message(f"Deleted {filepath} - Missing UPC/Zip headers")
+            log_message(f"DEBUG: Found headers: {headers}")
+            return jsonify({"message": "Invalid CSV headers"}), 400
+
+        # Second pass: data processing
+        with open(filepath, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if upload_cancel_event.is_set():  # Kill switch check
+                    log_message("PROCESS CANCELLED BY USER")
+                    os.remove(filepath)
+                    return jsonify({
+                        "message": "Upload cancelled",
+                        "processed": success_count,
+                        "errors": error_count
+                    }), 499
+
+                upc = row.get("UPC")
+                zip_code = row.get("Zip")
+                
+                if process_entry(upc, zip_code):
+                    success_count += 1
+                else:
+                    error_count += 1
+
+    finally:
+        with processing_lock:
+            csv_processing = False
+            upload_cancel_event.clear()
 
     log_message(f"CSV processing complete. Successes: {success_count}, Errors: {error_count}")
     return jsonify({
@@ -258,7 +298,16 @@ def upload_csv():
         "processed": success_count,
         "errors": error_count
     })
-
+    
+    
+@app.route('/cancel_upload', methods=['POST'])
+def cancel_upload():
+    """Endpoint to trigger cancellation"""
+    global upload_cancel_event
+    if csv_processing:
+        upload_cancel_event.set()
+        return jsonify({"message": "Cancellation signal sent"})
+    return jsonify({"message": "No active upload to cancel"}), 404
 @app.route("/manual_input", methods=["POST"])
 def manual_input():
     """Handle manual UPC & ZIP input"""
@@ -321,10 +370,29 @@ def index():
 
         output.seek(0)
 
+        filename = "search_results"
+
+        filters = []
+        if upc:
+            filters.append(f"UPC_{upc}")
+        if zipcode:
+            filters.append(f"ZIP_{zipcode}")
+        if city:
+            filters.append(f"City_{city}")
+        if state:
+            filters.append(f"State_{state}")
+        if price:
+            filters.append(f"Price_{price}")
+
+        if filters:
+            filename += "_" + "_".join(filters)
+
+        filename += ".csv"
+
         return Response(
             output, 
             mimetype="text/csv", 
-            headers={"Content-Disposition": "attachment;filename=search_results.csv"}
+            headers={"Content-Disposition": f"attachment;filename={filename}"}
         )
 
     conn.close()
@@ -375,4 +443,5 @@ def get_cities():
 
 # Initialize databases on startup
 init_databases()
+
 
