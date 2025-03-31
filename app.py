@@ -276,7 +276,6 @@ def upload_csv():
         log_message(f"FOUND : {len(rows)} COMBOS")
         
         for counter, row in enumerate(rows):
-            time.sleep(3)
             log_message(f"PROCESSING : {counter + 1} / {len(rows)} Combo")
             
             if upload_cancel_event.is_set():  # Kill switch check
