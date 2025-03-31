@@ -1,6 +1,5 @@
 import eventlet
 eventlet.monkey_patch()
-import gc
 from flask import Flask, request, render_template, Response, session, jsonify
 from flask_socketio import SocketIO
 import sqlite3
@@ -278,10 +277,10 @@ def upload_csv():
         
         for counter, row in enumerate(rows):
             log_message(f"PROCESSING : {counter + 1} / {len(rows)} Combo")
-            
+
             if upload_cancel_event.is_set():  # Kill switch check
                 log_message("PROCESS CANCELLED BY USER")
-                os.remove(filepath)
+                os.remove(filepath)  # ⛔ Blocking operation
                 return jsonify({
                     "message": "Upload cancelled",
                     "processed": success_count,
@@ -290,13 +289,15 @@ def upload_csv():
 
             upc = row.get("UPC")
             zip_code = row.get("Zip")
-            
-            if process_entry(upc, zip_code):
+
+            # Run process_entry in a green thread
+            result = eventlet.spawn(process_entry, upc, zip_code)
+
+            # Get result when done
+            if result.wait():  # .wait() lets eventlet handle it asynchronously
                 success_count += 1
             else:
                 error_count += 1
-            if counter % 100 == 0:
-                gc.collect()
 
     finally:
         with processing_lock:
