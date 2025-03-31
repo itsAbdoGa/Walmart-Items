@@ -175,7 +175,7 @@ def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price=""):
 
     query = """
         SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
-               i.name, i.msrp, i.image_url, i.item_url, 
+               i.name, i.upc, i.msrp, i.image_url, i.item_url, 
                si.price, si.salesfloor, si.backroom
         FROM store_items si
         JOIN stores s ON si.store_id = s.id 
@@ -269,23 +269,30 @@ def upload_csv():
         # Second pass: data processing
         with open(filepath, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            for row in reader:
-                if upload_cancel_event.is_set():  # Kill switch check
-                    log_message("PROCESS CANCELLED BY USER")
-                    os.remove(filepath)
-                    return jsonify({
-                        "message": "Upload cancelled",
-                        "processed": success_count,
-                        "errors": error_count
-                    }), 499
+            rows = list(reader)  # Convert iterator to list
 
-                upc = row.get("UPC")
-                zip_code = row.get("Zip")
-                
-                if process_entry(upc, zip_code):
-                    success_count += 1
-                else:
-                    error_count += 1
+        log_message(f"FOUND : {len(rows)} COMBOS")
+        
+        for counter, row in enumerate(rows):
+            time.sleep(3)
+            log_message(f"PROCESSING : {counter + 1} / {len(rows)} Combo")
+            
+            if upload_cancel_event.is_set():  # Kill switch check
+                log_message("PROCESS CANCELLED BY USER")
+                os.remove(filepath)
+                return jsonify({
+                    "message": "Upload cancelled",
+                    "processed": success_count,
+                    "errors": error_count
+                }), 499
+
+            upc = row.get("UPC")
+            zip_code = row.get("Zip")
+            
+            if process_entry(upc, zip_code):
+                success_count += 1
+            else:
+                error_count += 1
 
     finally:
         with processing_lock:
@@ -362,11 +369,12 @@ def index():
         writer = csv.writer(output)
 
         # Write header
-        writer.writerow(["Name", "Store Address", "Store Price", "Salesfloor", "Backroom" , "City" , "State"])
+        writer.writerow(["UPC","Name", "Store Address", "Store Price", "Salesfloor", "Backroom" , "City" , "State"])
+
 
         # Write data
         for row in results:
-            writer.writerow([row[5], row[0], row[9], row[10], row[11] , row[1] , row[2]])
+            writer.writerow([row[6],row[5], row[0], row[9], row[10], row[11] , row[1] , row[2]])
 
         output.seek(0)
 
@@ -399,31 +407,6 @@ def index():
     
     return render_template("index.html", results=results, cities=cities, states=states, price=price)
 
-@app.route('/export', methods=['GET'])
-def export_data():
-    """Export search results as CSV"""
-    results = session.get("search_results")
-
-    if not results:
-        return "No search results found. Please perform a search first.", 400
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Write header
-    writer.writerow(["Name", "Store Address", "Store Price", "Salesfloor", "Backroom"])
-
-    # Write data
-    for row in results:
-        writer.writerow([row[5], row[0], row[9], row[10], row[11]])
-
-    output.seek(0)
-
-    return Response(
-        output, 
-        mimetype="text/csv", 
-        headers={"Content-Disposition": "attachment;filename=search_results.csv"}
-    )
 
 @app.route("/get_cities")
 def get_cities():
@@ -443,5 +426,6 @@ def get_cities():
 
 # Initialize databases on startup
 init_databases()
+
 
 
