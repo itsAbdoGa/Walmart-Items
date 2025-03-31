@@ -1,5 +1,6 @@
 import eventlet
 eventlet.monkey_patch()
+import gc
 from flask import Flask, request, render_template, Response, session, jsonify
 from flask_socketio import SocketIO
 import sqlite3
@@ -294,6 +295,8 @@ def upload_csv():
                 success_count += 1
             else:
                 error_count += 1
+            if counter % 100 == 0:
+                gc.collect()
 
     finally:
         with processing_lock:
