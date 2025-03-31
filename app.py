@@ -1,20 +1,21 @@
-import eventlet
-eventlet.monkey_patch()
+from gevent import monkey
+monkey.patch_all()
 from flask import Flask, request, render_template, Response, session, jsonify
 from flask_socketio import SocketIO
 import sqlite3
 import json
-import requests
+import grequests
 import csv
 import os
 import io
 import time
 import sys
 from threading import Lock , Event
+
 # Initialize Flask app and SocketIO
 app = Flask(__name__)
 app.secret_key = "admin"  
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 MAX_LOGS = 10
 csv_processing = False
 processing_lock = Lock()
@@ -121,9 +122,11 @@ def process_entry(upc, zip_code):
     headers = {'Content-Type': 'application/json'}
 
     try:
-        response = requests.post(API_URL, headers=headers, data=payload)
+        # Using grequests for async requests
+        rs = (grequests.post(API_URL, headers=headers, data=payload))
+        response = grequests.map([rs])[0]
         response_data = response.json()
-    except (requests.RequestException, json.JSONDecodeError) as e:
+    except (grequests.exceptions.RequestException, json.JSONDecodeError, AttributeError) as e:
         log_message(f"Error processing {upc}: {str(e)}")
         return False
 
@@ -277,10 +280,10 @@ def upload_csv():
         
         for counter, row in enumerate(rows):
             log_message(f"PROCESSING : {counter + 1} / {len(rows)} Combo")
-
+            
             if upload_cancel_event.is_set():  # Kill switch check
                 log_message("PROCESS CANCELLED BY USER")
-                os.remove(filepath)  # ⛔ Blocking operation
+                os.remove(filepath)
                 return jsonify({
                     "message": "Upload cancelled",
                     "processed": success_count,
@@ -289,12 +292,8 @@ def upload_csv():
 
             upc = row.get("UPC")
             zip_code = row.get("Zip")
-
-            # Run process_entry in a green thread
-            result = eventlet.spawn(process_entry, upc, zip_code)
-
-            # Get result when done
-            if result.wait():  # .wait() lets eventlet handle it asynchronously
+            
+            if process_entry(upc, zip_code):
                 success_count += 1
             else:
                 error_count += 1
@@ -320,6 +319,7 @@ def cancel_upload():
         upload_cancel_event.set()
         return jsonify({"message": "Cancellation signal sent"})
     return jsonify({"message": "No active upload to cancel"}), 404
+
 @app.route("/manual_input", methods=["POST"])
 def manual_input():
     """Handle manual UPC & ZIP input"""
@@ -431,6 +431,7 @@ def get_cities():
 
 # Initialize databases on startup
 init_databases()
+
 
 
 
