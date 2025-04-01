@@ -1,6 +1,6 @@
 from gevent import monkey
 monkey.patch_all()
-from flask import Flask, request, render_template, Response, session, jsonify
+from flask import Flask, request, render_template, Response, session, jsonify , g
 from flask_socketio import SocketIO
 import sqlite3
 import json
@@ -10,7 +10,13 @@ import os
 import io
 import time
 import sys
-from threading import Lock , Event
+from gevent.lock import Semaphore
+from gevent.event import Event
+from gevent.queue import Queue
+import gevent
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
 
 # Initialize Flask app and SocketIO
 app = Flask(__name__)
@@ -18,8 +24,10 @@ app.secret_key = "admin"
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 MAX_LOGS = 10
 csv_processing = False
-processing_lock = Lock()
+processing_lock = Semaphore()
 upload_cancel_event = Event()
+csv_queue = Queue()
+processing_semaphore = Semaphore()
 
 # Constants
 UPLOAD_FOLDER = "uploads"
@@ -30,12 +38,11 @@ DATABASE = "stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
 MAX_RESULTS_IN_SESSION = 10
 
+
+
 # Helper functions
 def log_message(message):
-    if 'logs' not in session:
-        session['logs'] = []
-    session['logs'] = [message] + session['logs'][:MAX_LOGS - 1]  # Keep recent
-    session.modified = True  # Force save
+    
     """Log messages to console and emit to socket"""
     print(f"Logging: {message}", flush=True)
     socketio.emit('log_update', message , namespace="/")
@@ -219,6 +226,106 @@ def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price=""):
     conn.close()
     return results
 
+def get_upc_zip_to_refetch():
+    """Fetch UPC-ZIP combinations where timestamp is older than 24 hours."""
+    conn = sqlite3.connect(UPCZIP_DB)
+    cursor = conn.cursor()
+    twenty_four_hours_ago = int(time.time()) - 86400
+
+    cursor.execute("""
+        SELECT upc, zip , timestamp FROM upczip
+        WHERE timestamp <= ?
+    """, (twenty_four_hours_ago,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+def update_timestamp(upc, zip_code):
+    """Update timestamp in the database after successful data fetch."""
+    conn = sqlite3.connect(UPCZIP_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        UPDATE upczip
+        SET timestamp = ?
+        WHERE upc = ? AND zip = ?
+    """, (int(time.time()), upc, zip_code))
+    
+    conn.commit()
+    conn.close()
+    log_message(f" Updated timestamp for UPC {upc}, ZIP {zip_code} is {datetime.now()}")
+def refetch_data():
+    """Refetch expired UPC-ZIP data every 24 hours."""
+    upc_zip_combos = get_upc_zip_to_refetch()
+    
+    if not upc_zip_combos:
+        log_message(" No UPC-ZIP combinations need updating.")
+        return
+    
+    for upc, zip_code , timestamp in upc_zip_combos:
+        log_message(f" Refetching data for UPC: {upc}, ZIP: {zip_code} , Last Update : {datetime.fromtimestamp(timestamp)}")
+        success = process_entry(upc, zip_code)
+
+        if success:
+            update_timestamp(upc, zip_code)
+scheduler = BackgroundScheduler()
+scheduler.add_job(refetch_data, CronTrigger(minute=0), id="refetch_job", replace_existing=True)
+scheduler.start()
+
+def csv_worker():
+    """Worker that processes CSV files from the queue."""
+    while True:
+        filepath = csv_queue.get()  # Block until a CSV file is available
+        try:
+            with app.app_context():  # Ensure Flask app context is available
+                log_message(f"Processing CSV file: {filepath}")
+                g.success_count = 0
+                g.error_count = 0
+
+                # First pass: header validation
+                with open(filepath, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    headers = next(reader, [])
+                
+                if not {"UPC", "Zip"}.issubset(set(headers)):
+                    os.remove(filepath)
+                    log_message(f"Deleted {filepath} - Missing UPC/Zip headers")
+                    continue  # Skip to the next file in the queue
+
+                # Second pass: data processing
+                with open(filepath, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    rows = list(reader)  # Convert iterator to list
+
+                log_message(f"FOUND : {len(rows)} COMBOS")
+
+                for counter, row in enumerate(rows):
+                    log_message(f"PROCESSING : {counter + 1} / {len(rows)} Combo")
+                    
+                    if upload_cancel_event.is_set():  # Kill switch check
+                        log_message("PROCESS CANCELLED BY USER")
+                        os.remove(filepath)
+                        break  # Stop processing this file
+
+                    upc = row.get("UPC")
+                    zip_code = row.get("Zip")
+                    
+                    # Example of using g for storing the count of successes and errors (optional)
+                    g.success_count = g.success_count if hasattr(g, 'success_count') else 0
+                    g.error_count = g.error_count if hasattr(g, 'error_count') else 0
+                    
+                    if process_entry(upc, zip_code):
+                        g.success_count += 1
+                    else:
+                        g.error_count += 1
+
+                log_message(f"CSV processing complete. Successes: {g.success_count}, Errors: {g.error_count}")
+
+        except Exception as e:
+            log_message(f"Error processing CSV: {e}")
+            if os.path.exists(filepath):
+                os.remove(filepath)  # Ensure any failed file gets cleaned up
+
 # Routes
 @app.route('/clear_logs', methods=['POST'])
 def clear_logs():
@@ -237,7 +344,7 @@ def admin():
 @app.route("/upload_csv", methods=["POST"])
 def upload_csv():
     """Handle CSV file upload and process each entry"""
-    global csv_processing,upload_cancel_event
+    global csv_processing, upload_cancel_event
     
     with processing_lock:
         if csv_processing:
@@ -255,60 +362,22 @@ def upload_csv():
 
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
         file.save(filepath)
-        log_message("CSV uploaded. Processing...")
+        log_message(f"CSV uploaded. Processing... {filepath}")
 
-        success_count = 0
-        error_count = 0
-        
-        # First pass: header validation
-        with open(filepath, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            headers = next(reader, [])
-            
-        if not {"UPC", "Zip"}.issubset(set(headers)):
-            os.remove(filepath)
-            log_message(f"Deleted {filepath} - Missing UPC/Zip headers")
-            log_message(f"DEBUG: Found headers: {headers}")
-            return jsonify({"message": "Invalid CSV headers"}), 400
+        # Enqueue the CSV file for processing
+        csv_queue.put(filepath)
 
-        # Second pass: data processing
-        with open(filepath, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)  # Convert iterator to list
+        return jsonify({"message": f"CSV uploaded successfully. Will be processed shortly."}), 200
 
-        log_message(f"FOUND : {len(rows)} COMBOS")
-        
-        for counter, row in enumerate(rows):
-            log_message(f"PROCESSING : {counter + 1} / {len(rows)} Combo")
-            
-            if upload_cancel_event.is_set():  # Kill switch check
-                log_message("PROCESS CANCELLED BY USER")
-                os.remove(filepath)
-                return jsonify({
-                    "message": "Upload cancelled",
-                    "processed": success_count,
-                    "errors": error_count
-                }), 499
-
-            upc = row.get("UPC")
-            zip_code = row.get("Zip")
-            
-            if process_entry(upc, zip_code):
-                success_count += 1
-            else:
-                error_count += 1
+    except Exception as e:
+        return jsonify({"message": f"Error uploading CSV: {e}"}), 500
 
     finally:
         with processing_lock:
             csv_processing = False
             upload_cancel_event.clear()
 
-    log_message(f"CSV processing complete. Successes: {success_count}, Errors: {error_count}")
-    return jsonify({
-        "message": "CSV processed successfully", 
-        "processed": success_count,
-        "errors": error_count
-    })
+
     
     
 @app.route('/cancel_upload', methods=['POST'])
@@ -379,6 +448,7 @@ def index():
 
         # Write data
         for row in results:
+            print(row)
             writer.writerow([row[6],row[5], row[0], row[10], row[11], row[12] , row[1] , row[2]])
 
         output.seek(0)
@@ -431,7 +501,7 @@ def get_cities():
 
 # Initialize databases on startup
 init_databases()
-
+gevent.spawn(csv_worker)
 
 
 
