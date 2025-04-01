@@ -33,8 +33,8 @@ processing_semaphore = Semaphore()
 UPLOAD_FOLDER = "uploads"
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
-UPCZIP_DB = "upczip.db"
-DATABASE = "stores.db"
+UPCZIP_DB = "/database/upczip.db"
+DATABASE = "/database/stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
 MAX_RESULTS_IN_SESSION = 10
 
@@ -448,7 +448,6 @@ def index():
 
         # Write data
         for row in results:
-            print(row)
             writer.writerow([row[6],row[5], row[0], row[10], row[11], row[12] , row[1] , row[2]])
 
         output.seek(0)
