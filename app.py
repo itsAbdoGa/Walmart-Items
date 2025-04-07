@@ -268,9 +268,6 @@ def refetch_data():
 
         if success:
             update_timestamp(upc, zip_code)
-scheduler = BackgroundScheduler()
-scheduler.add_job(refetch_data, CronTrigger(minute=0), id="refetch_job", replace_existing=True)
-scheduler.start()
 
 def csv_worker():
     """Worker that processes CSV files from the queue."""
