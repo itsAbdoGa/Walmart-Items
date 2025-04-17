@@ -33,8 +33,8 @@ processing_semaphore = Semaphore()
 UPLOAD_FOLDER = "uploads"
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
-UPCZIP_DB = "/database/upczip.db"
-DATABASE = "/database/stores.db"
+UPCZIP_DB = "upczip.db"
+DATABASE = "stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
 MAX_RESULTS_IN_SESSION = 10
 
@@ -50,19 +50,7 @@ def log_message(message):
 
 def init_databases():
     """Initialize all necessary database tables"""
-    # UPC-ZIP database
-    conn = sqlite3.connect(UPCZIP_DB)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS upczip (
-            upc TEXT NOT NULL,
-            zip TEXT NOT NULL,
-            timestamp INTEGER NOT NULL,
-            PRIMARY KEY (upc, zip)
-        )
-    """)
-    conn.commit()
-    conn.close()
+    # ... your existing code ...
     
     # Main database
     conn = sqlite3.connect(DATABASE)
@@ -100,6 +88,9 @@ def init_databases():
     """)
     conn.commit()
     conn.close()
+    
+    # Add aisles column if it doesn't exist
+    add_aisles_column()
 
 def store_upc_zip(upc, zip_code):
     """Store the UPC-ZIP combination in the database"""
@@ -169,11 +160,11 @@ def process_entry(upc, zip_code):
         """, (store_id, store["address"], store["city"], store["state"], store["zip"], zip_code, store["storeUrl"]))
 
         cursor.execute("""
-            INSERT INTO store_items (store_id, item_id, price, salesfloor, backroom)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(store_id, item_id) DO UPDATE
-            SET price = excluded.price, salesfloor = excluded.salesfloor, backroom = excluded.backroom
-        """, (store_id, item_id, store["price"], store.get("salesFloor", 0), store.get("backRoom", 0)))
+    INSERT INTO store_items (store_id, item_id, price, salesfloor, backroom, aisles)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(store_id, item_id) DO UPDATE
+    SET price = excluded.price, salesfloor = excluded.salesfloor, backroom = excluded.backroom, aisles = excluded.aisles
+""", (store_id, item_id, store["price"], store.get("salesFloor", 0), store.get("backRoom", 0), store.get("aisles","None")))
 
     conn.commit()
     conn.close()
@@ -184,15 +175,15 @@ def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price=""):
     """Search the database based on filters"""
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-
+    cursor.execute("DELETE FROM store_items WHERE salesfloor = 0 AND backroom = 0")
     query = """
-        SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
-               i.name, i.upc, i.msrp, i.image_url, i.item_url, 
-               si.price, si.salesfloor, si.backroom
-        FROM store_items si
-        JOIN stores s ON si.store_id = s.id 
-        JOIN items i ON si.item_id = i.id
-    """
+    SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
+           i.name, i.upc, i.msrp, i.image_url, i.item_url, 
+           si.price, si.salesfloor, si.backroom, si.aisles
+    FROM store_items si
+    JOIN stores s ON si.store_id = s.id 
+    JOIN items i ON si.item_id = i.id
+"""
 
     filters = []
     params = []
@@ -323,7 +314,24 @@ def csv_worker():
             if os.path.exists(filepath):
                 os.remove(filepath)  # Ensure any failed file gets cleaned up
 
-# Routes
+def add_aisles_column():
+    """Add aisles column to store_items table if it doesn't exist"""
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    
+    # Check if aisles column already exists
+    cursor.execute("PRAGMA table_info(store_items)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if "aisles" not in columns:
+        try:
+            cursor.execute("ALTER TABLE store_items ADD COLUMN aisles TEXT DEFAULT NULL")
+            conn.commit()
+            log_message("Added 'aisles' column to store_items table")
+        except sqlite3.Error as e:
+            log_message(f"Error adding aisles column: {e}")
+    
+    conn.close()
 @app.route('/clear_logs', methods=['POST'])
 def clear_logs():
     if 'logs' in session:
@@ -440,12 +448,12 @@ def index():
         writer = csv.writer(output)
 
         # Write header
-        writer.writerow(["UPC","Name", "Store Address", "Store Price", "Salesfloor", "Backroom" , "City" , "State"])
+        writer.writerow(["UPC","Name", "Store Address", "Store Price", "Salesfloor", "Backroom" , "City" , "State" , "Aisles"])
 
 
         # Write data
         for row in results:
-            writer.writerow([row[6],row[5], row[0], row[10], row[11], row[12] , row[1] , row[2]])
+            writer.writerow([row[6],row[5], row[0], row[10], row[11], row[12] , row[1] , row[2] , row[13]])
 
         output.seek(0)
 
@@ -498,6 +506,7 @@ def get_cities():
 # Initialize databases on startup
 init_databases()
 gevent.spawn(csv_worker)
+
 
 
 
