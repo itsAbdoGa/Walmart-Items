@@ -50,7 +50,19 @@ def log_message(message):
 
 def init_databases():
     """Initialize all necessary database tables"""
-    # ... your existing code ...
+     # UPC-ZIP database
+    conn = sqlite3.connect(UPCZIP_DB)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS upczip (
+            upc TEXT NOT NULL,
+            zip TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            PRIMARY KEY (upc, zip)
+        )
+    """)
+    conn.commit()
+    conn.close()
     
     # Main database
     conn = sqlite3.connect(DATABASE)
@@ -175,7 +187,6 @@ def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price=""):
     """Search the database based on filters"""
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM store_items WHERE salesfloor = 0 AND backroom = 0")
     query = """
     SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
            i.name, i.upc, i.msrp, i.image_url, i.item_url, 
@@ -506,7 +517,6 @@ def get_cities():
 # Initialize databases on startup
 init_databases()
 gevent.spawn(csv_worker)
-
 
 
 
