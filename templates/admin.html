@@ -69,6 +69,9 @@
     <div class="container">
         <h2>Admin Panel</h2>
         <a href="{{ url_for('index') }}" class="return-button" >Return to  Search</a>
+        <div class="nav-section" style="margin: 15px 0;">
+            <a href="{{ url_for('max_prices') }}" class="return-button" style="background-color: #fd7e14;">Manage Max Prices</a>
+        </div>
         <input type="file" id="csvFile" accept=".csv">
         <button onclick="uploadCSV()">Upload CSV</button>
 

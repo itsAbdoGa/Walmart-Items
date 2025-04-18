@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UPC Max Price Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        }
+        h2 {
+            color: #333;
+        }
+        input, button {
+            margin-top: 10px;
+            padding: 10px;
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #007BFF;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .nav-buttons {
+            margin: 20px 0;
+        }
+        .return-button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 5px;
+            background-color: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        .return-button:hover {
+            background-color: #218838;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .action-buttons button {
+            width: auto;
+            padding: 5px 10px;
+            margin: 2px;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
+        .edit-btn {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        .edit-btn:hover {
+            background-color: #e0a800;
+        }
+        .form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        #searchInput {
+            margin-bottom: 20px;
+            padding: 10px;
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>UPC Max Price Management</h2>
+        
+        <div class="nav-buttons">
+            <a href="{{ url_for('index') }}" class="return-button">Return to Search</a>
+            <a href="{{ url_for('admin') }}" class="return-button">Return to Admin</a>
+        </div>
+
+        <div class="upload-section">
+            <h3>Upload Max Prices CSV</h3>
+            <p>Upload a CSV file with columns: UPC, PRICE, DESCRIPTION (optional)</p>
+            <input type="file" id="csvFile" accept=".csv">
+            <button onclick="uploadCSV()">Upload CSV</button>
+        </div>
+
+        <hr>
+
+        <div class="manual-entry">
+            <h3>Add/Edit Max Price</h3>
+            <div class="form-group">
+                <label for="upcInput">UPC:</label>
+                <input type="text" id="upcInput" placeholder="Enter UPC">
+            </div>
+            <div class="form-group">
+                <label for="priceInput">Max Price:</label>
+                <input type="number" id="priceInput" placeholder="Enter Max Price" step="0.01">
+            </div>
+            <div class="form-group">
+                <label for="descInput">Description (Optional):</label>
+                <input type="text" id="descInput" placeholder="Enter Description">
+            </div>
+            <button id="addButton" onclick="addMaxPrice()">Add/Update Max Price</button>
+        </div>
+
+        <hr>
+
+        <h3>Current Max Prices</h3>
+        <input type="text" id="searchInput" placeholder="Search UPCs or descriptions..." onkeyup="filterTable()">
+        
+        <div style="overflow-x:auto;">
+            <table id="maxPricesTable">
+                <thead>
+                    <tr>
+                        <th>UPC</th>
+                        <th>Max Price</th>
+                        <th>Description</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="priceTableBody">
+                    <!-- Table rows will be populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Load max prices when page loads
+        window.addEventListener('load', loadMaxPrices);
+        
+        function uploadCSV() {
+            var fileInput = document.getElementById("csvFile");
+            if (!fileInput.files.length) {
+                alert("Please select a CSV file to upload.");
+                return;
+            }
+            
+            var file = fileInput.files[0];
+            var formData = new FormData();
+            formData.append("file", file);
+            
+            fetch("/upload_max_prices", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadMaxPrices(); // Refresh the table
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                alert("Upload failed: " + error.message);
+            });
+        }
+        
+        function addMaxPrice() {
+            const upc = document.getElementById("upcInput").value.trim();
+            let price = document.getElementById("priceInput").value.trim();
+            const description = document.getElementById("descInput").value.trim();
+            
+            if (!upc || !price) {
+                alert("Please enter both UPC and Max Price.");
+                return;
+            }
+            
+            // Clean price if it has dollar signs or other currency symbols
+            price = price.replace(/[$£€]/g, '').trim();
+            
+            fetch("/manage_max_price", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    upc: upc, 
+                    price: price, 
+                    description: description, 
+                    action: "add"
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                if (data.success) {
+                    // Clear form
+                    document.getElementById("upcInput").value = "";
+                    document.getElementById("priceInput").value = "";
+                    document.getElementById("descInput").value = "";
+                    // Refresh table
+                    loadMaxPrices();
+                }
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                alert("Failed to add max price: " + error.message);
+            });
+        }
+        
+        function deleteMaxPrice(upc) {
+            if (confirm(`Are you sure you want to delete max price for UPC ${upc}?`)) {
+                fetch("/manage_max_price", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ upc: upc, action: "delete" })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    if (data.success) {
+                        loadMaxPrices(); // Refresh the table
+                    }
+                })
+                .catch(error => {
+                    console.error("Error:", error);
+                    alert("Failed to delete max price: " + error.message);
+                });
+            }
+        }
+        
+        function editMaxPrice(upc, currentPrice, currentDesc) {
+            // Fill the form with current values
+            document.getElementById("upcInput").value = upc;
+            document.getElementById("priceInput").value = currentPrice;
+            document.getElementById("descInput").value = currentDesc || '';
+            
+            // Scroll to the form
+            document.querySelector('.manual-entry').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function loadMaxPrices() {
+            fetch("/get_max_prices")
+            .then(response => response.json())
+            .then(data => {
+                const tableBody = document.getElementById("priceTableBody");
+                tableBody.innerHTML = ""; // Clear existing rows
+                
+                if (data.length === 0) {
+                    tableBody.innerHTML = "<tr><td colspan='5'>No max prices found</td></tr>";
+                    return;
+                }
+                
+                data.forEach(item => {
+                    const row = document.createElement("tr");
+                    
+                    row.innerHTML = `
+                        <td>${item.upc}</td>
+                        <td>$${item.max_price.toFixed(2)}</td>
+                        <td>${item.description || ''}</td>
+                        <td class="action-buttons">
+                            <button class="edit-btn" onclick="editMaxPrice('${item.upc}', ${item.max_price}, '${item.description || ''}')">Edit</button>
+                            <button class="delete-btn" onclick="deleteMaxPrice('${item.upc}')">Delete</button>
+                        </td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+            })
+            .catch(error => {
+                console.error("Error loading max prices:", error);
+                alert("Failed to load max prices: " + error.message);
+            });
+        }
+        
+        function filterTable() {
+            const input = document.getElementById("searchInput");
+            const filter = input.value.toUpperCase();
+            const table = document.getElementById("maxPricesTable");
+            const rows = table.getElementsByTagName("tr");
+            
+            for (let i = 1; i < rows.length; i++) { // Start at 1 to skip header row
+                const upcCol = rows[i].getElementsByTagName("td")[0];
+                const nameCol = rows[i].getElementsByTagName("td")[1];
+                const descCol = rows[i].getElementsByTagName("td")[3];
+                
+                if (upcCol && nameCol && descCol) {
+                    const upcText = upcCol.textContent || upcCol.innerText;
+                    const nameText = nameCol.textContent || nameCol.innerText;
+                    const descText = descCol.textContent || descCol.innerText;
+                    
+                    if (
+                        upcText.toUpperCase().indexOf(filter) > -1 || 
+                        nameText.toUpperCase().indexOf(filter) > -1 || 
+                        descText.toUpperCase().indexOf(filter) > -1
+                    ) {
+                        rows[i].style.display = "";
+                    } else {
+                        rows[i].style.display = "none";
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -33,8 +33,8 @@ processing_semaphore = Semaphore()
 UPLOAD_FOLDER = "uploads"
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
-UPCZIP_DB = "/database/upczip.db"
-DATABASE = "/database/stores.db"
+UPCZIP_DB = "upczip.db"
+DATABASE = "stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
 MAX_RESULTS_IN_SESSION = 10
 
@@ -50,7 +50,9 @@ def log_message(message):
 
 def init_databases():
     """Initialize all necessary database tables"""
-     # UPC-ZIP database
+    # Your existing database initialization code...
+    
+    # UPC-ZIP database
     conn = sqlite3.connect(UPCZIP_DB)
     cursor = conn.cursor()
     cursor.execute("""
@@ -96,6 +98,12 @@ def init_databases():
             PRIMARY KEY (store_id, item_id),
             FOREIGN KEY (store_id) REFERENCES stores(id),
             FOREIGN KEY (item_id) REFERENCES items(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS upc_max_prices (
+            upc TEXT PRIMARY KEY,
+            max_price REAL NOT NULL,
+            description TEXT
         );
     """)
     conn.commit()
@@ -183,18 +191,30 @@ def process_entry(upc, zip_code):
     log_message(f"Processed: UPC {upc}, ZIP {zip_code}")
     return True
 
-def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price=""):
+def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price="", deal_filter=False):
     """Search the database based on filters"""
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    query = """
+    
+    base_query = """
     SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
            i.name, i.upc, i.msrp, i.image_url, i.item_url, 
            si.price, si.salesfloor, si.backroom, si.aisles
     FROM store_items si
     JOIN stores s ON si.store_id = s.id 
     JOIN items i ON si.item_id = i.id
-"""
+    """
+
+    deal_query = """
+    SELECT s.address, s.city, s.state, s.zipcode, s.store_url, 
+           i.name, i.upc, i.msrp, i.image_url, i.item_url, 
+           si.price, si.salesfloor, si.backroom, si.aisles
+    FROM store_items si
+    JOIN stores s ON si.store_id = s.id 
+    JOIN items i ON si.item_id = i.id
+    JOIN upc_max_prices ump ON i.upc = ump.upc
+    WHERE si.price <= ump.max_price
+    """
 
     filters = []
     params = []
@@ -218,15 +238,22 @@ def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price=""):
     if price:
         filters.append("si.price <= ?")
         params.append(price)
-
-    if filters:
+        
+    # Use the appropriate base query
+    query = deal_query if deal_filter else base_query
+    
+    # Add filters if we have any
+    if filters and not deal_filter:
         query += " WHERE " + " AND ".join(filters)
+    elif filters and deal_filter:
+        query += " AND " + " AND ".join(filters)
 
     cursor.execute(query, params)
     results = cursor.fetchall()
 
     conn.close()
     return results
+
 
 def get_upc_zip_to_refetch():
     """Fetch UPC-ZIP combinations where timestamp is older than 24 hours."""
@@ -351,6 +378,156 @@ def clear_logs():
         return jsonify({"message": "Logs cleared successfully"})
     return jsonify({"message": "No logs to clear"}), 404
 
+@app.route("/upload_max_prices", methods=["POST"])
+def upload_max_prices():
+    """Handle CSV file upload for UPC max prices"""
+    try:
+        if "file" not in request.files:
+            return jsonify({"message": "No file provided"}), 400
+
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"message": "No selected file"}), 400
+
+        # Save and process the file
+        filepath = os.path.join(UPLOAD_FOLDER, "max_prices_" + file.filename)
+        file.save(filepath)
+        log_message(f"Max prices CSV uploaded. Processing... {filepath}")
+
+        # Process CSV file
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        success_count = 0
+        error_count = 0
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            headers = [h.upper() for h in next(reader)]  # Convert headers to uppercase
+            
+            # Find column indices (case-insensitive matching)
+            upc_col = next((i for i, h in enumerate(headers) if h == "UPC"), None)
+            price_col = next((i for i, h in enumerate(headers) if h == "PRICE"), None)
+            desc_col = next((i for i, h in enumerate(headers) if h == "DESCRIPTION"), None)
+            
+            if upc_col is None or price_col is None:
+                os.remove(filepath)
+                return jsonify({"message": "CSV must contain UPC and PRICE columns"}), 400
+            
+            for row in reader:
+                if len(row) <= max(upc_col, price_col):
+                    error_count += 1
+                    continue
+                    
+                upc = row[upc_col].strip()
+                price_str = row[price_col].strip()
+                
+                # Remove currency symbols and clean price string
+                price_str = price_str.replace('$', '').replace('£', '').replace('€', '').strip()
+                
+                # Get description if available
+                description = ""
+                if desc_col is not None and len(row) > desc_col:
+                    description = row[desc_col].strip()
+                
+                if not upc or not price_str:
+                    error_count += 1
+                    continue
+                
+                try:
+                    price = float(price_str)
+                    cursor.execute("""
+                        INSERT INTO upc_max_prices (upc, max_price, description)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(upc) DO UPDATE 
+                        SET max_price = excluded.max_price, 
+                            description = excluded.description
+                    """, (upc, price, description))
+                    success_count += 1
+                except (ValueError, sqlite3.Error) as e:
+                    log_message(f"Error processing {upc}: {str(e)}")
+                    error_count += 1
+        
+        conn.commit()
+        conn.close()
+        os.remove(filepath)
+        
+        return jsonify({
+            "message": f"Max prices uploaded successfully. Processed: {success_count}, Errors: {error_count}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"message": f"Error uploading max prices: {str(e)}"}), 500
+
+@app.route("/manage_max_price", methods=["POST"])
+def manage_max_price():
+    """Add or update a single UPC max price entry"""
+    data = request.json
+    upc = data.get("upc")
+    price = data.get("price")
+    description = data.get("description", "")
+    action = data.get("action", "add")  # 'add', 'update', or 'delete'
+    
+    if not upc:
+        return jsonify({"message": "UPC is required"}), 400
+        
+    if action in ["add", "update"] and not price:
+        return jsonify({"message": "Price is required for add/update"}), 400
+    
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    
+    try:
+        if action == "delete":
+            cursor.execute("DELETE FROM upc_max_prices WHERE upc = ?", (upc,))
+            message = f"UPC {upc} removed from max price list"
+        else:
+            # Clean price string if it's a string (could be a number already)
+            if isinstance(price, str):
+                price = price.replace('$', '').replace('£', '').replace('€', '').strip()
+            
+            cursor.execute("""
+                INSERT INTO upc_max_prices (upc, max_price, description)
+                VALUES (?, ?, ?)
+                ON CONFLICT(upc) DO UPDATE 
+                SET max_price = excluded.max_price,
+                    description = excluded.description
+            """, (upc, float(price), description))
+            message = f"UPC {upc} max price set to ${float(price)}"
+        
+        conn.commit()
+        conn.close()
+        return jsonify({"message": message, "success": True})
+    
+    except Exception as e:
+        conn.close()
+        return jsonify({"message": f"Error: {str(e)}", "success": False}), 500
+
+@app.route("/get_max_prices", methods=["GET"])
+def get_max_prices():
+    """Return all UPC max price entries"""
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT ump.upc, ump.max_price, ump.description, i.name 
+        FROM upc_max_prices ump
+        LEFT JOIN items i ON ump.upc = i.upc
+        ORDER BY ump.upc
+    """)
+    
+    results = cursor.fetchall()
+    conn.close()
+    
+    max_prices = []
+    for row in results:
+        max_prices.append({
+            "upc": row[0],
+            "max_price": row[1],
+            "description": row[2],
+            "name": row[3] if row[3] else "Unknown Item"
+        })
+    
+    return jsonify(max_prices)
 
 @app.route("/adminpanel")
 def admin():
@@ -444,6 +621,7 @@ def index():
 
     results = None
     price = ""
+    deal_filter = False
 
     if request.method == "POST":
         upc = request.form.get("upc")
@@ -451,8 +629,9 @@ def index():
         city = request.form.get("city", "")
         state = request.form.get("state", "")
         price = request.form.get("price", "")
+        deal_filter = request.form.get("deal_filter") == "on"
 
-        results = search_by_zip_upc(upc, zipcode, city, state, price)
+        results = search_by_zip_upc(upc, zipcode, city, state, price, deal_filter)
         results_size_kb = get_size_kb(results)
         print(f"Found : {results_size_kb} KB Worth of data")
         output = io.StringIO()
@@ -481,6 +660,8 @@ def index():
             filters.append(f"State_{state}")
         if price:
             filters.append(f"Price_{price}")
+        if deal_filter:
+            filters.append("DealsOnly")
 
         if filters:
             filename += "_" + "_".join(filters)
@@ -497,7 +678,10 @@ def index():
     
     return render_template("index.html", results=results, cities=cities, states=states, price=price)
 
-
+@app.route("/max_prices")
+def max_prices():
+    """Route for managing UPC max prices"""
+    return render_template("max_prices.html")
 @app.route("/get_cities")
 def get_cities():
     """API endpoint to get cities by state for dynamic form updates"""
@@ -517,6 +701,4 @@ def get_cities():
 # Initialize databases on startup
 init_databases()
 gevent.spawn(csv_worker)
-
-
-
+socketio.run(app=app,host="0.0.0.0",debug=True)
