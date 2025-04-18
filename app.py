@@ -701,4 +701,3 @@ def get_cities():
 # Initialize databases on startup
 init_databases()
 gevent.spawn(csv_worker)
-socketio.run(app=app,host="0.0.0.0",debug=True)
