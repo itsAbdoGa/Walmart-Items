@@ -19,8 +19,8 @@ from datetime import datetime
 
 # Application Constants
 UPLOAD_FOLDER = "uploads"
-UPCZIP_DB = "upczip.db"
-DATABASE = "stores.db"
+UPCZIP_DB = "/database/upczip.db"
+DATABASE = "/database/stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
 MAX_LOGS = 10
 MAX_RESULTS_IN_SESSION = 10
@@ -668,6 +668,3 @@ init_databases()
 # Start CSV worker thread
 gevent.spawn(csv_worker)
 
-# Run the app
-if __name__ == "__main__":
-    socketio.run(app=app, host="0.0.0.0", debug=True)
