@@ -4,168 +4,247 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UPC Max Price Management</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .price-card {
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+            border: none;
+            margin-bottom: 30px;
+        }
+        .price-card .card-header {
+            background-color: #f1f5f9;
+            border-radius: 12px 12px 0 0;
+            border-bottom: none;
             padding: 20px;
-            text-align: center;
         }
-        .container {
-            max-width: 800px;
-            margin: auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        .price-title {
+            color: #1e293b;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
         }
-        h2 {
-            color: #333;
-        }
-        input, button {
-            margin-top: 10px;
-            padding: 10px;
-            width: 100%;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }
-        button {
-            background-color: #007BFF;
-            color: white;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-        .nav-buttons {
-            margin: 20px 0;
-        }
-        .return-button {
-            display: inline-block;
-            padding: 10px 20px;
-            margin: 5px;
-            background-color: #28a745;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-size: 16px;
-            transition: background 0.3s;
-        }
-        .return-button:hover {
-            background-color: #218838;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        .action-buttons button {
-            width: auto;
-            padding: 5px 10px;
-            margin: 2px;
-        }
-        .delete-btn {
-            background-color: #dc3545;
-        }
-        .delete-btn:hover {
-            background-color: #c82333;
-        }
-        .edit-btn {
-            background-color: #ffc107;
-            color: #212529;
-        }
-        .edit-btn:hover {
-            background-color: #e0a800;
-        }
-        .form-group {
-            margin-bottom: 15px;
-            text-align: left;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        #searchInput {
+        .action-buttons {
+            display: flex;
+            gap: 10px;
             margin-bottom: 20px;
-            padding: 10px;
-            width: 100%;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+        }
+        .action-buttons .btn {
+            flex: 1;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        .btn-primary {
+            background-color: #4f46e5;
+            border: none;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+        .btn-success {
+            background-color: #10b981;
+            border: none;
+        }
+        .btn-success:hover {
+            background-color: #059669;
+        }
+        .btn-warning {
+            background-color: #f59e0b;
+            border: none;
+            color: white;
+        }
+        .btn-warning:hover {
+            background-color: #d97706;
+        }
+        .btn-danger {
+            background-color: #ef4444;
+            border: none;
+        }
+        .btn-danger:hover {
+            background-color: #dc2626;
+        }
+        .file-input-group {
+            position: relative;
+            margin-bottom: 15px;
+        }
+        .file-input-label {
+            background-color: #e2e8f0;
+            color: #475569;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: block;
+            text-align: center;
+            margin-bottom: 10px;
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s;
+        }
+        .file-input-label:hover {
+            background-color: #cbd5e1;
+        }
+        .file-input-label i {
+            font-size: 24px;
+            margin-bottom: 5px;
+            display: block;
+        }
+        #csvFile {
+            display: none;
+        }
+        .selected-file {
+            display: none;
+            background-color: #dbeafe;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+        .section-header {
+            margin: 20px 0 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+            color: #475569;
+            font-weight: 600;
+        }
+        .form-control {
+            border-color: #e2e8f0;
+            padding: 12px;
+        }
+        .form-control:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 0.2rem rgba(79, 70, 229, 0.25);
+        }
+        .form-label {
+            font-weight: 500;
+            color: #475569;
+        }
+        .input-group-text {
+            background-color: #f1f5f9;
+            border-color: #e2e8f0;
+        }
+        .price-table {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .price-table thead {
+            background-color: #4f46e5;
+            color: white;
+        }
+        .btn-sm {
+            border-radius: 6px;
+            padding: 6px 12px;
+        }
+        #selectedFileName {
+            background-color: #dbeafe;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 5px;
+            font-size: 14px;
+            display: none;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>UPC Max Price Management</h2>
+    <div class="container mt-5 mb-5">
+        <h1 class="text-center price-title">UPC Max Price Management</h1>
         
-        <div class="nav-buttons">
-            <a href="{{ url_for('index') }}" class="return-button">Return to Search</a>
-            <a href="{{ url_for('admin') }}" class="return-button">Return to Admin</a>
-        </div>
-
-        <div class="upload-section">
-            <h3>Upload Max Prices CSV</h3>
-            <p>Upload a CSV file with columns: UPC, PRICE, DESCRIPTION (optional)</p>
-            <input type="file" id="csvFile" accept=".csv">
-            <button onclick="uploadCSV()">Upload CSV</button>
-        </div>
-
-        <hr>
-
-        <div class="manual-entry">
-            <h3>Add/Edit Max Price</h3>
-            <div class="form-group">
-                <label for="upcInput">UPC:</label>
-                <input type="text" id="upcInput" placeholder="Enter UPC">
+        <div class="card price-card">
+            <div class="card-header">
+                <div class="action-buttons">
+                    <a href="{{ url_for('index') }}" class="btn btn-success">
+                        <i class="fas fa-search me-2"></i>Return to Search
+                    </a>
+                    <a href="{{ url_for('admin') }}" class="btn btn-warning">
+                        <i class="fas fa-cogs me-2"></i>Return to Admin
+                    </a>
+                </div>
+                
+                <h4 class="section-header"><i class="fas fa-file-csv me-2"></i>Upload Max Prices CSV</h4>
+                <p class="text-muted mb-3">Upload a CSV file with columns: UPC, PRICE, DESCRIPTION (optional)</p>
+                <div class="file-input-group">
+                    <label for="csvFile" class="file-input-label">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        Click to select CSV file
+                    </label>
+                    <div id="selectedFileName" class="selected-file"></div>
+                    <input type="file" id="csvFile" accept=".csv">
+                </div>
+                <button onclick="uploadCSV()" class="btn btn-primary btn-lg w-100">
+                    <i class="fas fa-upload me-2"></i>Upload CSV
+                </button>
+                
+                <h4 class="section-header mt-4"><i class="fas fa-edit me-2"></i>Add/Edit Max Price</h4>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="input-group mb-3">
+                            <span class="input-group-text"><i class="fas fa-barcode"></i></span>
+                            <input type="text" id="upcInput" class="form-control" placeholder="Enter UPC">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="input-group mb-3">
+                            <span class="input-group-text"><i class="fas fa-dollar-sign"></i></span>
+                            <input type="number" id="priceInput" class="form-control" placeholder="Enter Max Price" step="0.01">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="input-group mb-3">
+                            <span class="input-group-text"><i class="fas fa-tag"></i></span>
+                            <input type="text" id="descInput" class="form-control" placeholder="Enter Description (Optional)">
+                        </div>
+                    </div>
+                </div>
+                <button id="addButton" onclick="addMaxPrice()" class="btn btn-primary w-100">
+                    <i class="fas fa-save me-2"></i>Add/Update Max Price
+                </button>
+                
+                <h4 class="section-header mt-4"><i class="fas fa-list me-2"></i>Current Max Prices</h4>
+                <div class="input-group mb-3">
+                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                    <input type="text" id="searchInput" class="form-control" placeholder="Search UPCs or descriptions..." onkeyup="filterTable()">
+                </div>
+                
+                <div class="table-responsive price-table">
+                    <table class="table table-striped table-hover mb-0" id="maxPricesTable">
+                        <thead>
+                            <tr>
+                                <th>UPC</th>
+                                <th>Max Price</th>
+                                <th>Description</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="priceTableBody">
+                            <!-- Table rows will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="priceInput">Max Price:</label>
-                <input type="number" id="priceInput" placeholder="Enter Max Price" step="0.01">
-            </div>
-            <div class="form-group">
-                <label for="descInput">Description (Optional):</label>
-                <input type="text" id="descInput" placeholder="Enter Description">
-            </div>
-            <button id="addButton" onclick="addMaxPrice()">Add/Update Max Price</button>
-        </div>
-
-        <hr>
-
-        <h3>Current Max Prices</h3>
-        <input type="text" id="searchInput" placeholder="Search UPCs or descriptions..." onkeyup="filterTable()">
-        
-        <div style="overflow-x:auto;">
-            <table id="maxPricesTable">
-                <thead>
-                    <tr>
-                        <th>UPC</th>
-                        <th>Max Price</th>
-                        <th>Description</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="priceTableBody">
-                    <!-- Table rows will be populated by JavaScript -->
-                </tbody>
-            </table>
         </div>
     </div>
 
     <script>
         // Load max prices when page loads
         window.addEventListener('load', loadMaxPrices);
+        
+        // Display selected filename
+        document.getElementById("csvFile").addEventListener("change", function() {
+            var fileInput = document.getElementById("csvFile");
+            var fileNameDisplay = document.getElementById("selectedFileName");
+            
+            if (fileInput.files.length > 0) {
+                fileNameDisplay.textContent = fileInput.files[0].name;
+                fileNameDisplay.style.display = "block";
+            } else {
+                fileNameDisplay.style.display = "none";
+            }
+        });
         
         function uploadCSV() {
             var fileInput = document.getElementById("csvFile");
@@ -262,7 +341,7 @@
             document.getElementById("descInput").value = currentDesc || '';
             
             // Scroll to the form
-            document.querySelector('.manual-entry').scrollIntoView({ behavior: 'smooth' });
+            document.querySelector('.section-header').scrollIntoView({ behavior: 'smooth' });
         }
         
         function loadMaxPrices() {
@@ -273,20 +352,25 @@
                 tableBody.innerHTML = ""; // Clear existing rows
                 
                 if (data.length === 0) {
-                    tableBody.innerHTML = "<tr><td colspan='5'>No max prices found</td></tr>";
+                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No max prices found</td></tr>';
                     return;
                 }
                 
                 data.forEach(item => {
                     const row = document.createElement("tr");
+                    const description = item.description ? item.description.replace(/'/g, "\\'") : '';
                     
                     row.innerHTML = `
                         <td>${item.upc}</td>
-                        <td>$${item.max_price.toFixed(2)}</td>
+                        <td><span class="badge bg-success">$${item.max_price.toFixed(2)}</span></td>
                         <td>${item.description || ''}</td>
-                        <td class="action-buttons">
-                            <button class="edit-btn" onclick="editMaxPrice('${item.upc}', ${item.max_price}, '${item.description || ''}')">Edit</button>
-                            <button class="delete-btn" onclick="deleteMaxPrice('${item.upc}')">Delete</button>
+                        <td>
+                            <button class="btn btn-warning btn-sm" onclick="editMaxPrice('${item.upc}', ${item.max_price}, '${description}')">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteMaxPrice('${item.upc}')">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
                         </td>
                     `;
                     
@@ -307,17 +391,17 @@
             
             for (let i = 1; i < rows.length; i++) { // Start at 1 to skip header row
                 const upcCol = rows[i].getElementsByTagName("td")[0];
-                const nameCol = rows[i].getElementsByTagName("td")[1];
-                const descCol = rows[i].getElementsByTagName("td")[3];
+                const priceCol = rows[i].getElementsByTagName("td")[1];
+                const descCol = rows[i].getElementsByTagName("td")[2];
                 
-                if (upcCol && nameCol && descCol) {
+                if (upcCol && priceCol && descCol) {
                     const upcText = upcCol.textContent || upcCol.innerText;
-                    const nameText = nameCol.textContent || nameCol.innerText;
+                    const priceText = priceCol.textContent || priceCol.innerText;
                     const descText = descCol.textContent || descCol.innerText;
                     
                     if (
                         upcText.toUpperCase().indexOf(filter) > -1 || 
-                        nameText.toUpperCase().indexOf(filter) > -1 || 
+                        priceText.toUpperCase().indexOf(filter) > -1 || 
                         descText.toUpperCase().indexOf(filter) > -1
                     ) {
                         rows[i].style.display = "";
@@ -328,5 +412,6 @@
             }
         }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

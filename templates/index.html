@@ -5,94 +5,200 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Store Item Search</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .search-card {
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+            border: none;
+        }
+        .search-card .card-header {
+            background-color: #f1f5f9;
+            border-radius: 12px 12px 0 0;
+            border-bottom: none;
+            padding: 20px;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .action-buttons .btn {
+            flex: 1;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        .form-check {
+            background-color: #eef2ff;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4f46e5;
+        }
+        .btn-primary {
+            background-color: #4f46e5;
+            border: none;
+            padding: 10px 30px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+        .search-title {
+            color: #1e293b;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+        }
+        .form-label {
+            font-weight: 500;
+            color: #475569;
+        }
+        .results-table {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .results-table thead {
+            background-color: #4f46e5;
+            color: white;
+        }
+    </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="text-center">Search for an Item</h1>
-        <div class="card p-4 shadow-sm">
-            <a href="{{ url_for('admin') }}" class="btn btn-success my-3">Admin Panel</a>
-            <a href="{{ url_for('max_prices') }}" class="nav-link">Manage Max Prices</a>
-            <form method="POST" class="row g-3">
-                <div class="col-md-6">
-                    <input type="text" name="zipcode" class="form-control" placeholder="Enter Zipcode" value="{{ request.form.get('zipcode', '') }}" >
-                </div>
-                <div class="col-md-6">
-                    <input type="text" name="upc" class="form-control" placeholder="Enter UPC" value="{{ request.form.get('upc', '') }}" >
-                </div>
-                
-                <div class="col-md-6">
-                    <label for="state" class="form-label">State</label>
-                    <select name="state" id="state" class="form-select">
-                        <option value="">Select State</option>
-                        {% for s in states %}
-                        <option value="{{ s }}" {% if request.form.get('state') == s %}selected{% endif %}>{{ s }}</option>
-                        {% endfor %}
-                    </select>
+    <div class="container mt-5 mb-5">
+        <h1 class="text-center search-title">Store Item Search</h1>
+        
+        <div class="card search-card mb-4">
+            <div class="card-header">
+                <div class="action-buttons">
+                    <a href="{{ url_for('admin') }}" class="btn btn-success">
+                        <i class="fas fa-cogs me-2"></i>Admin Panel
+                    </a>
+                    <a href="{{ url_for('max_prices') }}" class="btn btn-info text-white">
+                        <i class="fas fa-tags me-2"></i>Manage Max Prices
+                    </a>
                 </div>
                 
-                <div class="col-md-6">
-                    <label for="city" class="form-label">City</label>
-                    <select name="city" id="city" class="form-select">
-                        <option value="">Select City</option>
-                        {% if request.form.get("city") %}
-                        <option value="{{ request.form.get('city') }}" selected>{{ request.form.get('city') }}</option>
-                        {% endif %}
-                    </select>
-                    <label for="price" class="form-label">Max Price</label>
-                    <input type="text" name="price" class="form-control" placeholder="Enter Price" value="{{ request.form.get('price', '') }}">
-                </div>
-                <div class="col-12 text-center"></div>
-                    <button type="submit" class="btn btn-primary">Export</button>
-                </div>
-                <div class="form-group">
-                    <label for="deal_filter">
-                        <input type="checkbox" id="deal_filter" name="deal_filter">
-                        Show Only Deals (Items Below Max Price)
-                    </label>
-                </div>
-            </form>
+                <form method="POST" class="row g-3">
+                    <!-- Filter options -->
+                    <div class="col-md-6">
+                        <div class="form-check d-flex align-items-center">
+                            <input class="form-check-input me-2" type="checkbox" id="deal_filter" name="deal_filter">
+                            <label class="form-check-label" for="deal_filter">
+                                <i class="fas fa-percentage me-2"></i>Show Only Deals (Items Below Max Price)
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="form-check d-flex align-items-center">
+                            <input class="form-check-input me-2" type="checkbox" id="remove_zero_inventory" name="remove_zero_inventory">
+                            <label class="form-check-label" for="remove_zero_inventory">
+                                <i class="fas fa-trash-alt me-2"></i>Remove Items With Zero Inventory
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Search inputs -->
+                    <div class="col-md-6">
+                        <div class="input-group mb-3">
+                            <span class="input-group-text"><i class="fas fa-location-dot"></i></span>
+                            <input type="text" name="zipcode" class="form-control" placeholder="Enter Zipcode" value="{{ request.form.get('zipcode', '') }}">
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="input-group mb-3">
+                            <span class="input-group-text"><i class="fas fa-barcode"></i></span>
+                            <input type="text" name="upc" class="form-control" placeholder="Enter UPC" value="{{ request.form.get('upc', '') }}">
+                        </div>
+                    </div>
+                    
+                    <!-- State selection -->
+                    <div class="col-md-6">
+                        <label for="state" class="form-label"><i class="fas fa-map me-1"></i>State</label>
+                        <select name="state" id="state" class="form-select">
+                            <option value="">Select State</option>
+                            {% for s in states %}
+                            <option value="{{ s }}" {% if request.form.get('state') == s %}selected{% endif %}>{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- City selection -->
+                    <div class="col-md-6">
+                        <label for="city" class="form-label"><i class="fas fa-city me-1"></i>City</label>
+                        <select name="city" id="city" class="form-select">
+                            <option value="">Select City</option>
+                            {% if request.form.get("city") %}
+                            <option value="{{ request.form.get('city') }}" selected>{{ request.form.get('city') }}</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                    
+                    <!-- Price input -->
+                    <div class="col-md-12">
+                        <label for="price" class="form-label"><i class="fas fa-dollar-sign me-1"></i>Max Price</label>
+                        <input type="text" name="price" class="form-control" placeholder="Enter Price" value="{{ request.form.get('price', '') }}">
+                    </div>
+                    
+                    <!-- Submit button -->
+                    <div class="col-12 text-center mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-file-export me-2"></i>Export Results
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
 
         {% if results is not none %}
         <div class="mt-4">
-            <h2>Search Results</h2>
+            <h2 class="search-title">
+                <i class="fas fa-search me-2"></i>Search Results
+                <span class="badge bg-primary">{{ results|length }} found</span>
+            </h2>
+            
             {% if results %}
-            <table class="table table-striped">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Store Address</th>
-                        <th>Store Price</th>
-                        <th>Salesfloor</th>
-                        <th>Backroom</th>
-                        <th>Zip</th>
-                        <th>City</th>
-                        <th>State</th>
-
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in results %}
-                    <tr>
-                        <td>{{ row[5] }}</td>
-                        <td>{{ row[0] }}</td>
-                        <td>${{ row[9] }}</td>
-                        <td>{{ row[10] }}</td>
-                        <td>{{ row[11] }}</td>
-                        <td>{{ row[3] }}</td>
-                        <td>{{ row[1] }}</td>
-                        <td>{{ row[2] }}</td>
-
-                        
-                    </tr>
-                    {% endfor %}
-                    
-
-                </tbody>
-            </table>
+            <div class="table-responsive results-table">
+                <table class="table table-striped table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Store Address</th>
+                            <th>Store Price</th>
+                            <th>Salesfloor</th>
+                            <th>Backroom</th>
+                            <th>Zip</th>
+                            <th>City</th>
+                            <th>State</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in results %}
+                        <tr>
+                            <td>{{ row[5] }}</td>
+                            <td>{{ row[0] }}</td>
+                            <td><span class="badge bg-success">${{ row[9] }}</span></td>
+                            <td>{{ row[10] }}</td>
+                            <td>{{ row[11] }}</td>
+                            <td>{{ row[3] }}</td>
+                            <td>{{ row[1] }}</td>
+                            <td>{{ row[2] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
             {% else %}
-                <p class="text-danger">No results found.</p>
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle me-2"></i>No results found matching your criteria.
+            </div>
             {% endif %}
         </div>
         {% endif %}
@@ -119,12 +225,7 @@
                 });
             }
         });
-        </script>
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.getElementById("radius").addEventListener("input", function() {
-            document.getElementById("radiusValue").textContent = this.value;
-        });
-        </script>
 </body>
 </html>
