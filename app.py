@@ -19,8 +19,8 @@ from datetime import datetime
 
 # Application Constants
 UPLOAD_FOLDER = "uploads"
-UPCZIP_DB = "/database/upczip.db"
-DATABASE = "/database/stores.db"
+UPCZIP_DB = "upczip.db"
+DATABASE = "stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
 MAX_LOGS = 10
 MAX_RESULTS_IN_SESSION = 10
@@ -184,6 +184,17 @@ def process_entry(upc, zip_code):
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (store_id, store["address"], store["city"], store["state"], store["zip"], zip_code, store["storeUrl"]))
 
+            # Get current price before updating
+            cursor.execute("SELECT price FROM store_items WHERE store_id = ? AND item_id = ?", (store_id, item_id))
+            current_price_result = cursor.fetchone()
+            
+            # Store new price in history if there was a previous price and it's different
+            if current_price_result and current_price_result[0] != store["price"]:
+                cursor.execute("""
+                    INSERT INTO price_history (store_id, item_id, price, timestamp)
+                    VALUES (?, ?, ?, ?)
+                """, (store_id, item_id, current_price_result[0], int(time.time())))
+
             cursor.execute("""
                 INSERT INTO store_items (store_id, item_id, price, salesfloor, backroom, aisles)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -320,6 +331,46 @@ def search_by_zip_upc(upc="", motherzipcode="", city="", state="", price="", dea
 def get_size_kb(data):
     """Return the size of an object in kilobytes."""
     return round(sys.getsizeof(json.dumps(data)) / 1024, 2)  # Convert bytes to KB
+def get_price_history(upc, store_id):
+    """
+    Retrieve the price history for a given UPC at a specific store.
+    Returns the previous price if there was a change or None if no previous price exists.
+    """
+    with get_db_connection(DATABASE) as conn:
+        cursor = conn.cursor()
+        
+        # Create price_history table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS price_history (
+                store_id INTEGER,
+                item_id INTEGER, 
+                price REAL,
+                timestamp INTEGER,
+                PRIMARY KEY (store_id, item_id, timestamp),
+                FOREIGN KEY (store_id) REFERENCES stores(id),
+                FOREIGN KEY (item_id) REFERENCES items(id)
+            )
+        """)
+        conn.commit()
+        
+        # Get the item_id from the upc
+        cursor.execute("SELECT id FROM items WHERE upc = ?", (upc,))
+        result = cursor.fetchone()
+        if not result:
+            return None
+        
+        item_id = result[0]
+        
+        # Get the most recent previous price (not the current one)
+        cursor.execute("""
+            SELECT price FROM price_history 
+            WHERE store_id = ? AND item_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """, (store_id, item_id))
+        
+        result = cursor.fetchone()
+        return result[0] if result else None
 
 # ===========================
 # Route Handlers
@@ -446,12 +497,31 @@ def index():
         output = io.StringIO()
         writer = csv.writer(output)
 
-        # Write header
-        writer.writerow(["UPC","Name", "Store Address", "Store Price", "Salesfloor", "Backroom", "City", "State", "Aisles"])
+        # Write header with markdown column
+        writer.writerow(["UPC","Name", "Store Address", "Store Price", "Markdown", "Salesfloor", "Backroom", "City", "State", "Aisles"])
 
         # Write data
         for row in results:
-            writer.writerow([row[6], row[5], row[0], row[10], row[11], row[12], row[1], row[2], row[13]])
+            upc = row[6]
+            store_id = None
+            
+            # Get store_id from the store address
+            with get_db_connection(DATABASE) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM stores WHERE address = ?", (row[0],))
+                store_result = cursor.fetchone()
+                if store_result:
+                    store_id = store_result[0]
+            
+            # Get price history
+            markdown = ""
+            if store_id:
+                prev_price = get_price_history(upc, store_id)
+                if prev_price and prev_price != row[10]:  # row[10] is current price
+                    markdown = f"Was ${prev_price:.2f}"
+            
+            # Add row with markdown information
+            writer.writerow([upc, row[5], row[0], row[10], markdown, row[11], row[12], row[1], row[2], row[13]])
 
         output.seek(0)
 
@@ -657,7 +727,77 @@ def get_max_prices():
         })
     
     return jsonify(max_prices)
-
+@app.route('/clear_old_items', methods=['POST'])
+def clear_old_items():
+    """Delete items from database older than specified days"""
+    try:
+        data = request.json
+        days = data.get('days', 30)  # Default to 30 days if not specified
+        
+        if not isinstance(days, int) or days < 1:
+            return jsonify({"message": "Invalid days parameter. Must be a positive integer.", "success": False}), 400
+            
+        # Calculate the cutoff timestamp (current time - days)
+        cutoff_timestamp = int(time.time()) - (days * 24 * 60 * 60)
+        
+        # Step 1: Get the list of UPCs to be deleted from upczip table
+        with get_db_connection(UPCZIP_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT upc FROM upczip WHERE timestamp < ?", (cutoff_timestamp,))
+            old_upcs = [row[0] for row in cursor.fetchall()]
+            
+            # Now delete the old records from upczip
+            cursor.execute("DELETE FROM upczip WHERE timestamp < ?", (cutoff_timestamp,))
+            upczip_deleted = cursor.rowcount
+            conn.commit()
+        
+        log_message(f"Found {len(old_upcs)} unique UPCs to remove")
+        
+        # Step 2: Delete from other tables in the main database
+        items_deleted = 0
+        store_items_deleted = 0
+        price_history_deleted = 0
+        
+        if old_upcs:
+            with get_db_connection(DATABASE) as conn:
+                cursor = conn.cursor()
+                
+                # First, find all item IDs associated with these UPCs
+                placeholders = ','.join(['?' for _ in old_upcs])
+                cursor.execute(f"SELECT id FROM items WHERE upc IN ({placeholders})", old_upcs)
+                item_ids = [row[0] for row in cursor.fetchall()]
+                
+                # Step 3: Delete from store_items using the item IDs
+                if item_ids:
+                    placeholders = ','.join(['?' for _ in item_ids])
+                    cursor.execute(f"DELETE FROM store_items WHERE item_id IN ({placeholders})", item_ids)
+                    store_items_deleted = cursor.rowcount
+                    
+                    # Step 4: Delete price history records using the item IDs
+                    cursor.execute(f"DELETE FROM price_history WHERE item_id IN ({placeholders})", item_ids)
+                    price_history_deleted = cursor.rowcount
+                
+                # Step 5: Finally delete the items from the items table
+                placeholders = ','.join(['?' for _ in old_upcs])
+                cursor.execute(f"DELETE FROM items WHERE upc IN ({placeholders})", old_upcs)
+                items_deleted = cursor.rowcount
+                
+                conn.commit()
+        
+        log_message(f"Cleared items older than {days} days: {upczip_deleted} UPC-ZIP combinations, {items_deleted} items, {store_items_deleted} store items, {price_history_deleted} price history records")
+        
+        return jsonify({
+            "message": f"Successfully removed {upczip_deleted} UPC-ZIP combinations, {items_deleted} items, {store_items_deleted} store items, and {price_history_deleted} price history records older than {days} days.",
+            "success": True,
+            "upczip_deleted": upczip_deleted,
+            "items_deleted": items_deleted,
+            "store_items_deleted": store_items_deleted,
+            "price_history_deleted": price_history_deleted
+        })
+        
+    except Exception as e:
+        log_message(f"Error clearing old items: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}", "success": False}), 500
 # ===========================
 # Application Initialization
 # ===========================
