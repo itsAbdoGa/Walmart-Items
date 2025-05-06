@@ -186,6 +186,36 @@
                 <button onclick="submitManualEntry()" class="btn btn-primary w-100">
                     <i class="fas fa-paper-plane me-2"></i>Submit Entry
                 </button>
+                <h4 class="section-header mt-4"><i class="fas fa-database me-2"></i>Database Maintenance</h4>
+                <div class="input-group mb-3">
+                    <span class="input-group-text"><i class="fas fa-calendar-days"></i></span>
+                    <input type="number" id="daysThreshold" class="form-control" placeholder="Number of days" min="1" value="30">
+                    <button onclick="showClearOldItemsConfirmation()" class="btn btn-danger">
+                        <i class="fas fa-trash-alt me-2"></i>Clear Old Items
+                    </button>
+                </div>
+
+                <!-- Confirmation Modal -->
+                <div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header bg-danger text-white">
+                                <h5 class="modal-title" id="confirmationModalLabel">Confirm Deletion</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>Are you sure you want to delete all items older than <span id="daysConfirmation">30</span> days?</p>
+                                <p class="text-danger"><strong>This action cannot be undone!</strong></p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-danger" onclick="clearOldItems()">Yes, Delete Items</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                
                 
                 <h4 class="section-header mt-4"><i class="fas fa-terminal me-2"></i>System Logs</h4>
                 <button onclick="clearLogs()" class="btn btn-danger mb-3">
@@ -212,6 +242,47 @@
                 fileNameDisplay.style.display = "none";
             }
         });
+        function showClearOldItemsConfirmation() {
+            // Update the days in the confirmation message
+            var days = document.getElementById("daysThreshold").value;
+            document.getElementById("daysConfirmation").textContent = days;
+            
+            // Show the modal using Bootstrap's modal API
+            var confirmationModal = new bootstrap.Modal(document.getElementById('confirmationModal'));
+            confirmationModal.show();
+        }
+
+        function clearOldItems() {
+                var daysInput = document.getElementById("daysThreshold").value;
+                
+                // Convert to integer and validate
+                var days = parseInt(daysInput, 10);
+                
+                // Validate that days is a positive integer
+                if (isNaN(days) || days <= 0) {
+                    alert("Days must be a positive integer.");
+                    return;
+                }
+                
+                fetch("/clear_old_items", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ days: days })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Hide the modal
+                    var confirmationModal = bootstrap.Modal.getInstance(document.getElementById('confirmationModal'));
+                    confirmationModal.hide();
+                    
+                    // Show message
+                    alert(data.message || "Items cleared successfully!");
+                })
+                .catch(error => {
+                    console.error("Error:", error);
+                    alert("Failed to clear items: " + error.message);
+                });
+            }
 
         function uploadCSV() {
             var fileInput = document.getElementById("csvFile");
