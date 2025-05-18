@@ -19,8 +19,8 @@ from datetime import datetime
 
 # Application Constants
 UPLOAD_FOLDER = "uploads"
-UPCZIP_DB = "/database/upczip.db"
-DATABASE = "/database/stores.db"
+UPCZIP_DB = "upczip.db"
+DATABASE = "stores.db"
 API_URL = "http://5.75.246.251:9099/stock/store"
 MAX_LOGS = 10
 MAX_RESULTS_IN_SESSION = 10
@@ -44,11 +44,35 @@ processing_semaphore = Semaphore()
 # ===========================
 # Database Helper Functions
 # ===========================
+def alter_max_prices():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
+    # Get existing column names from the table
+    cursor.execute("PRAGMA table_info(upc_max_prices)")
+    existing_columns = [col[1] for col in cursor.fetchall()]
+
+    # Define the columns you want to add (name and type)
+    new_columns = {
+        "net": "REAL",          # change to the correct type if needed
+        "department": "TEXT"    # change to the correct type if needed
+    }
+
+    # Loop through and add only the missing ones
+    for column_name, column_type in new_columns.items():
+        if column_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE upc_max_prices ADD COLUMN {column_name} {column_type}")
+            print(f"Added column: {column_name}")
+        
+
+    conn.commit()
+    conn.close()
+    
+    
 def get_db_connection(db_path):
-    """Create and return a database connection"""
-    conn = sqlite3.connect(db_path)
-    return conn
+        """Create and return a database connection"""
+        conn = sqlite3.connect(db_path)
+        return conn
 
 def init_databases():
     """Initialize all necessary database tables"""
@@ -497,8 +521,20 @@ def index():
         output = io.StringIO()
         writer = csv.writer(output)
 
-        # Write header with markdown column
-        writer.writerow(["UPC","Name", "Store Address", "Store Price", "Markdown", "Salesfloor", "Backroom", "City", "State", "Aisles"])
+        # Write header with max price and description columns
+        writer.writerow([
+            "UPC", "Name", "Store Address", "Store Price",  
+              "Salesfloor", "Backroom", "City", 
+            "State", "Aisles" , "Max Price Noted", "Description", "Net" , "Department" ,  "Markdown",
+        ])
+
+        # Create a UPC to max_price/description lookup dict
+        upc_data = {}
+        with get_db_connection(DATABASE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT upc, max_price, description , net , department FROM upc_max_prices")
+            for row in cursor.fetchall():
+                upc_data[row[0]] = {"max_price": row[1], "description": row[2] , "net" : row[3] , "department" : row[4]}
 
         # Write data
         for row in results:
@@ -520,8 +556,24 @@ def index():
                 if prev_price and prev_price != row[10]:  # row[10] is current price
                     markdown = f"Was ${prev_price:.2f}"
             
-            # Add row with markdown information
-            writer.writerow([upc, row[5], row[0], row[10], markdown, row[11], row[12], row[1], row[2], row[13]])
+            # Get max price and description if available
+            max_price = ""
+            description = ""
+            net = ""
+            department = ""
+            if upc in upc_data:
+                max_price = upc_data[upc]["max_price"]
+                description = upc_data[upc]["description"]
+                net = upc_data[upc]["net"]
+                department = upc_data[upc]["department"]
+                
+            
+            # Add row with markdown, max price, and description information
+            writer.writerow([
+                upc, row[5], row[0], row[10],  
+                  row[11], row[12], row[1], 
+                row[2], row[13] , max_price , description,net,department , markdown,
+            ])
 
         output.seek(0)
 
@@ -609,6 +661,8 @@ def upload_max_prices():
                 upc_col = next((i for i, h in enumerate(headers) if h == "UPC"), None)
                 price_col = next((i for i, h in enumerate(headers) if h == "PRICE"), None)
                 desc_col = next((i for i, h in enumerate(headers) if h == "DESCRIPTION"), None)
+                net_col = next((i for i, h in enumerate(headers) if h == "NET"), None)
+                dept_col = next((i for i, h in enumerate(headers) if h == "DEPARTMENT"), None)
                 
                 if upc_col is None or price_col is None:
                     os.remove(filepath)
@@ -625,10 +679,22 @@ def upload_max_prices():
                     # Remove currency symbols and clean price string
                     price_str = price_str.replace('$', '').replace('£', '').replace('€', '').strip()
                     
-                    # Get description if available
+                    # Get optional fields if available
                     description = ""
                     if desc_col is not None and len(row) > desc_col:
                         description = row[desc_col].strip()
+                    
+                    net = None
+                    if net_col is not None and len(row) > net_col and row[net_col].strip():
+                        net_str = row[net_col].strip().replace('$', '').replace('£', '').replace('€', '').strip()
+                        try:
+                            net = float(net_str)
+                        except ValueError:
+                            pass  # Leave as None if can't convert
+                    
+                    department = ""
+                    if dept_col is not None and len(row) > dept_col:
+                        department = row[dept_col].strip()
                     
                     if not upc or not price_str:
                         error_count += 1
@@ -637,12 +703,14 @@ def upload_max_prices():
                     try:
                         price = float(price_str)
                         cursor.execute("""
-                            INSERT INTO upc_max_prices (upc, max_price, description)
-                            VALUES (?, ?, ?)
+                            INSERT INTO upc_max_prices (upc, max_price, description, net, department)
+                            VALUES (?, ?, ?, ?, ?)
                             ON CONFLICT(upc) DO UPDATE 
                             SET max_price = excluded.max_price, 
-                                description = excluded.description
-                        """, (upc, price, description))
+                                description = excluded.description,
+                                net = excluded.net,
+                                department = excluded.department
+                        """, (upc, price, description, net, department))
                         success_count += 1
                     except (ValueError, sqlite3.Error) as e:
                         log_message(f"Error processing {upc}: {str(e)}")
@@ -659,48 +727,91 @@ def upload_max_prices():
     except Exception as e:
         return jsonify({"message": f"Error uploading max prices: {str(e)}"}), 500
 
+# Update the manage_max_price route to handle new fields
 @app.route("/manage_max_price", methods=["POST"])
 def manage_max_price():
-    """Add or update a single UPC max price entry"""
-    data = request.json
-    upc = data.get("upc")
-    price = data.get("price")
-    description = data.get("description", "")
-    action = data.get("action", "add")  # 'add', 'update', or 'delete'
-    
-    if not upc:
-        return jsonify({"message": "UPC is required"}), 400
-        
-    if action in ["add", "update"] and not price:
-        return jsonify({"message": "Price is required for add/update"}), 400
-    
+    """Add, update or delete a max price record"""
     try:
+        data = request.json
+        action = data.get("action")
+        
         with get_db_connection(DATABASE) as conn:
             cursor = conn.cursor()
             
-            if action == "delete":
-                cursor.execute("DELETE FROM upc_max_prices WHERE upc = ?", (upc,))
-                message = f"UPC {upc} removed from max price list"
-            else:
-                # Clean price string if it's a string (could be a number already)
-                if isinstance(price, str):
-                    price = price.replace('$', '').replace('£', '').replace('€', '').strip()
+            if action == "add":
+                upc = data.get("upc")
+                price = data.get("price")
+                description = data.get("description", "")
+                net = data.get("net")
+                department = data.get("department", "")
                 
-                cursor.execute("""
-                    INSERT INTO upc_max_prices (upc, max_price, description)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(upc) DO UPDATE 
-                    SET max_price = excluded.max_price,
-                        description = excluded.description
-                """, (upc, float(price), description))
-                message = f"UPC {upc} max price set to ${float(price)}"
+                if not upc or not price:
+                    return jsonify({"success": False, "message": "UPC and price are required"}), 400
+                
+                try:
+                    price = float(price)
+                    if net is not None and net != "":
+                        net = float(net)
+                    else:
+                        net = None
+                        
+                    cursor.execute("""
+                        INSERT INTO upc_max_prices (upc, max_price, description, net, department)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(upc) DO UPDATE 
+                        SET max_price = excluded.max_price, 
+                            description = excluded.description,
+                            net = excluded.net,
+                            department = excluded.department
+                    """, (upc, price, description, net, department))
+                    conn.commit()
+                    
+                    return jsonify({
+                        "success": True, 
+                        "message": f"Max price for UPC {upc} added/updated successfully"
+                    }), 200
+                except ValueError:
+                    return jsonify({
+                        "success": False, 
+                        "message": "Price and net must be valid numbers"
+                    }), 400
+                except sqlite3.Error as e:
+                    return jsonify({
+                        "success": False, 
+                        "message": f"Database error: {str(e)}"
+                    }), 500
             
-            conn.commit()
-        
-        return jsonify({"message": message, "success": True})
-    
+            elif action == "delete":
+                upc = data.get("upc")
+                
+                if not upc:
+                    return jsonify({"success": False, "message": "UPC is required"}), 400
+                
+                try:
+                    cursor.execute("DELETE FROM upc_max_prices WHERE upc = ?", (upc,))
+                    conn.commit()
+                    
+                    return jsonify({
+                        "success": True, 
+                        "message": f"Max price for UPC {upc} deleted successfully"
+                    }), 200
+                except sqlite3.Error as e:
+                    return jsonify({
+                        "success": False, 
+                        "message": f"Database error: {str(e)}"
+                    }), 500
+            
+            else:
+                return jsonify({
+                    "success": False, 
+                    "message": "Invalid action"
+                }), 400
+                
     except Exception as e:
-        return jsonify({"message": f"Error: {str(e)}", "success": False}), 500
+        return jsonify({
+            "success": False, 
+            "message": f"Error managing max price: {str(e)}"
+        }), 500
 
 @app.route("/get_max_prices", methods=["GET"])
 def get_max_prices():
@@ -709,7 +820,7 @@ def get_max_prices():
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT ump.upc, ump.max_price, ump.description, i.name 
+            SELECT ump.upc, ump.max_price, ump.description, ump.net, ump.department, i.name 
             FROM upc_max_prices ump
             LEFT JOIN items i ON ump.upc = i.upc
             ORDER BY ump.upc
@@ -723,7 +834,9 @@ def get_max_prices():
             "upc": row[0],
             "max_price": row[1],
             "description": row[2],
-            "name": row[3] if row[3] else "Unknown Item"
+            "net": row[3],
+            "department": row[4],
+            "name": row[5] if row[5] else "Unknown Item"
         })
     
     return jsonify(max_prices)
@@ -803,6 +916,7 @@ def clear_old_items():
 # ===========================
 
 # Initialize databases on startup
+alter_max_prices()
 init_databases()
 
 # Start CSV worker thread
