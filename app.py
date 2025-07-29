@@ -30,6 +30,3 @@ create_indexes()
 
 # Start processing worker
 start_processing_worker()
-
-if __name__ == "__main__":
-    socketio.run(app, debug=True)
