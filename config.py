@@ -14,10 +14,7 @@ class Config:
     MAX_LOGS = 10
     MAX_RESULTS_IN_SESSION = 10
     
-    @staticmethod
-    def init_app():
-        os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
-        os.makedirs(Config.DATABASE_DIR, exist_ok=True)
+
 
 class qmanager:
     
