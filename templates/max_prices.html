@@ -157,16 +157,16 @@
         <div class="card price-card">
             <div class="card-header">
                 <div class="action-buttons">
-                    <a href="{{ url_for('index') }}" class="btn btn-success">
+                    <a href="{{ url_for('main.index') }}" class="btn btn-success">
                         <i class="fas fa-search me-2"></i>Return to Search
                     </a>
-                    <a href="{{ url_for('admin') }}" class="btn btn-warning">
+                    <a href="{{ url_for('admin.admin') }}" class="btn btn-warning">
                         <i class="fas fa-cogs me-2"></i>Return to Admin
                     </a>
                 </div>
                 
                 <h4 class="section-header"><i class="fas fa-file-csv me-2"></i>Upload Max Prices CSV</h4>
-                <p class="text-muted mb-3">Upload a CSV file with columns: UPC, PRICE, DESCRIPTION (optional), NET (optional), DEPARTMENT (optional)</p>
+                <p class="text-muted mb-3">Upload a CSV file with columns: UPC, PRICE, DESCRIPTION (optional), NET (optional), DEPARTMENT (optional) , PRODUCTID</p>
                 <div class="file-input-group">
                     <label for="csvFile" class="file-input-label">
                         <i class="fas fa-cloud-upload-alt"></i>
@@ -181,33 +181,39 @@
                 
                 <h4 class="section-header mt-4"><i class="fas fa-edit me-2"></i>Add/Edit Max Price</h4>
                 <div class="row">
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <div class="input-group mb-3">
                             <span class="input-group-text"><i class="fas fa-barcode"></i></span>
                             <input type="text" id="upcInput" class="form-control" placeholder="Enter UPC">
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <div class="input-group mb-3">
                             <span class="input-group-text"><i class="fas fa-dollar-sign"></i></span>
                             <input type="number" id="priceInput" class="form-control" placeholder="Enter Max Price" step="0.01">
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="input-group mb-3">
                             <span class="input-group-text"><i class="fas fa-tag"></i></span>
-                            <input type="text" id="descInput" class="form-control" placeholder="Enter Description (Optional)">
+                            <input type="text" id="productInput" class="form-control" placeholder="Enter Product ID (Optional)">
                         </div>
                     </div>
                 </div>
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
+                        <div class="input-group mb-3">
+                            <span class="input-group-text"><i class="fas fa-info-circle"></i></span>
+                            <input type="text" id="descInput" class="form-control" placeholder="Enter Description (Optional)">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
                         <div class="input-group mb-3">
                             <span class="input-group-text"><i class="fas fa-chart-line"></i></span>
                             <input type="number" id="netInput" class="form-control" placeholder="Enter Net (Optional)" step="0.01">
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="input-group mb-3">
                             <span class="input-group-text"><i class="fas fa-sitemap"></i></span>
                             <input type="text" id="deptInput" class="form-control" placeholder="Enter Department (Optional)">
@@ -230,6 +236,7 @@
                             <tr>
                                 <th>UPC</th>
                                 <th>Max Price</th>
+                                <th>Product ID</th>
                                 <th>Net</th>
                                 <th>Department</th>
                                 <th>Description</th>
@@ -294,6 +301,7 @@
             const description = document.getElementById("descInput").value.trim();
             let net = document.getElementById("netInput").value.trim();
             const department = document.getElementById("deptInput").value.trim();
+            const productid = document.getElementById("productInput").value.trim();
             
             if (!upc || !price) {
                 alert("Please enter both UPC and Max Price.");
@@ -315,6 +323,7 @@
                     description: description,
                     net: net || null,
                     department: department || null,
+                    productid : productid  || null,
                     action: "add"
                 })
             })
@@ -328,6 +337,7 @@
                     document.getElementById("descInput").value = "";
                     document.getElementById("netInput").value = "";
                     document.getElementById("deptInput").value = "";
+                    document.getElementById("productInput").value = "";
                     // Refresh table
                     loadMaxPrices();
                 }
@@ -359,10 +369,11 @@
             }
         }
         
-        function editMaxPrice(upc, currentPrice, currentDesc, currentNet, currentDept) {
+        function editMaxPrice(upc, currentPrice, currentProductId, currentDesc, currentNet, currentDept) {
             // Fill the form with current values
             document.getElementById("upcInput").value = upc;
             document.getElementById("priceInput").value = currentPrice;
+            document.getElementById("productInput").value = currentProductId || '';
             document.getElementById("descInput").value = currentDesc || '';
             document.getElementById("netInput").value = currentNet !== null && currentNet !== 'null' ? currentNet : '';
             document.getElementById("deptInput").value = currentDept || '';
@@ -380,7 +391,7 @@
                 tableBody.innerHTML = ""; // Clear existing rows
                 
                 if (data.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center">No max prices found</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="7" class="text-center">No max prices found</td></tr>';
                     return;
                 }
                 
@@ -388,16 +399,18 @@
                     const row = document.createElement("tr");
                     const description = item.description ? item.description.replace(/'/g, "\\'") : '';
                     const department = item.department ? item.department.replace(/'/g, "\\'") : '';
+                    const productid = item.productid ? item.productid.replace(/'/g, "\\'") : '';
                     const netValue = item.net !== null ? Number(item.net).toFixed(2) : null;
                     
                     row.innerHTML = `
                         <td>${item.upc}</td>
                         <td><span class="badge bg-success">$${item.max_price.toFixed(2)}</span></td>
+                        <td>${item.productid || ''}</td>
                         <td>${netValue !== null ? '$' + netValue : ''}</td>
                         <td>${item.department || ''}</td>
                         <td>${item.description || ''}</td>
                         <td>
-                            <button class="btn btn-warning btn-sm" onclick="editMaxPrice('${item.upc}', ${item.max_price}, '${description}', ${netValue !== null ? netValue : 'null'}, '${department}')">
+                            <button class="btn btn-warning btn-sm" onclick="editMaxPrice('${item.upc}', ${item.max_price}, '${productid}', '${description}', ${netValue !== null ? netValue : 'null'}, '${department}')">
                                 <i class="fas fa-edit"></i> Edit
                             </button>
                             <button class="btn btn-danger btn-sm" onclick="deleteMaxPrice('${item.upc}')">
@@ -424,13 +437,15 @@
             for (let i = 1; i < rows.length; i++) { // Start at 1 to skip header row
                 const upcCol = rows[i].getElementsByTagName("td")[0];
                 const priceCol = rows[i].getElementsByTagName("td")[1];
-                const netCol = rows[i].getElementsByTagName("td")[2];
-                const deptCol = rows[i].getElementsByTagName("td")[3];
-                const descCol = rows[i].getElementsByTagName("td")[4];
+                const prodCol = rows[i].getElementsByTagName("td")[2];
+                const netCol = rows[i].getElementsByTagName("td")[3];
+                const deptCol = rows[i].getElementsByTagName("td")[4];
+                const descCol = rows[i].getElementsByTagName("td")[5];
                 
-                if (upcCol && priceCol && netCol && deptCol && descCol) {
+                if (upcCol && priceCol && prodCol && netCol && deptCol && descCol) {
                     const upcText = upcCol.textContent || upcCol.innerText;
                     const priceText = priceCol.textContent || priceCol.innerText;
+                    const prodText = prodCol.textContent || prodCol.innerText;
                     const netText = netCol.textContent || netCol.innerText;
                     const deptText = deptCol.textContent || deptCol.innerText;
                     const descText = descCol.textContent || descCol.innerText;
@@ -438,6 +453,7 @@
                     if (
                         upcText.toUpperCase().indexOf(filter) > -1 || 
                         priceText.toUpperCase().indexOf(filter) > -1 || 
+                        prodText.toUpperCase().indexOf(filter) > -1 || 
                         netText.toUpperCase().indexOf(filter) > -1 ||
                         deptText.toUpperCase().indexOf(filter) > -1 ||
                         descText.toUpperCase().indexOf(filter) > -1

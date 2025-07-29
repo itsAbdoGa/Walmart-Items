@@ -67,6 +67,68 @@
             background-color: #4f46e5;
             color: white;
         }
+        .csv-upload-section {
+            background-color: #f8f9fa;
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .csv-upload-section:hover {
+            border-color: #4f46e5;
+            background-color: #f1f5f9;
+        }
+        .csv-upload-section.dragover {
+            border-color: #4f46e5;
+            background-color: #eef2ff;
+        }
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+        }
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+        .file-input-label {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #6c757d;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .file-input-label:hover {
+            background-color: #5a6268;
+        }
+        .csv-info {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 0 8px 8px 0;
+        }
+        .uploaded-file-info {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 10px;
+            display: none;
+        }
+        .search-mode-toggle {
+            margin-bottom: 20px;
+        }
+        .search-mode-toggle .btn-group {
+            width: 100%;
+        }
+        .search-mode-toggle .btn {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -76,15 +138,79 @@
         <div class="card search-card mb-4">
             <div class="card-header">
                 <div class="action-buttons">
-                    <a href="{{ url_for('admin') }}" class="btn btn-success">
+                    <a href="{{ url_for('admin.admin') }}" class="btn btn-success">
                         <i class="fas fa-cogs me-2"></i>Admin Panel
                     </a>
-                    <a href="{{ url_for('max_prices') }}" class="btn btn-info text-white">
+                    <a href="{{ url_for('max_prices.max_prices') }}" class="btn btn-info text-white">
                         <i class="fas fa-tags me-2"></i>Manage Max Prices
                     </a>
                 </div>
+
+                <!-- Search Mode Toggle -->
+                <div class="search-mode-toggle">
+                    <div class="btn-group" role="group" aria-label="Search Mode">
+                        <input type="radio" class="btn-check" name="search_mode" id="single_search" value="single" checked>
+                        <label class="btn btn-outline-primary" for="single_search">
+                            <i class="fas fa-search me-2"></i>Single Search
+                        </label>
+                        
+                        <input type="radio" class="btn-check" name="search_mode" id="bulk_search" value="bulk">
+                        <label class="btn btn-outline-primary" for="bulk_search">
+                            <i class="fas fa-file-excel me-2"></i>Bulk File Search
+                        </label>
+                    </div>
+                </div>
+
+                <!-- CSV Upload Section -->
+                <div id="csv_upload_section" class="csv-upload-section" style="display: none;">
+                    <div class="mb-3">
+                        <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                        <h5>Upload CSV or XLSX File with Zipcodes</h5>
+                        <p class="text-muted">Drag and drop a file here, or click to browse</p>
+                        
+                        <div class="file-input-wrapper">
+                            <input type="file" id="csv_file" name="csv_file" accept=".csv,.xlsx,.xls">
+                            <label for="csv_file" class="file-input-label">
+                                <i class="fas fa-folder-open me-2"></i>Choose File (CSV/XLSX)
+                            </label>
+                        </div>
+                        
+                        <div id="uploaded_file_info" class="uploaded-file-info">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            <span id="file_name"></span>
+                            <button type="button" class="btn btn-sm btn-outline-danger ms-2" id="remove_file">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="csv-info">
+                        <h6><i class="fas fa-info-circle me-2"></i>File Format Requirements:</h6>
+                        <ul class="text-start mb-0">
+                            <li><strong>Supported formats:</strong> CSV (.csv) and Excel (.xlsx, .xls)</li>
+                            <li><strong>Required column:</strong> Must contain a column named "zipcode", "zip", "postal_code", or "postcode"</li>
+                            <li><strong>Data format:</strong> Each row should contain one zipcode</li>
+                            <li><strong>Example:</strong> 
+                                <div class="mt-2">
+                                    <code>
+                                        zipcode<br>
+                                        12345<br>
+                                        67890<br>
+                                        54321
+                                    </code>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
                 
-                <form method="POST" class="row g-3">
+                <form method="POST" enctype="multipart/form-data" class="row g-3" id="search_form">
+                    <!-- Hidden field to track search mode -->
+                    <input type="hidden" name="search_mode" id="search_mode_input" value="single">
+                    
+                    <!-- Hidden file input for form submission -->
+                    <input type="file" name="csv_file" id="form_csv_file" style="display: none;">
+                    
                     <!-- Filter options -->
                     <div class="col-md-6">
                         <div class="form-check d-flex align-items-center">
@@ -104,44 +230,57 @@
                         </div>
                     </div>
                     
-                    <!-- Search inputs -->
-                    <div class="col-md-6">
-                        <div class="input-group mb-3">
-                            <span class="input-group-text"><i class="fas fa-location-dot"></i></span>
-                            <input type="text" name="zipcode" class="form-control" placeholder="Enter Zipcode" value="{{ request.form.get('zipcode', '') }}">
+                    <!-- Single Search Fields -->
+                    <div id="single_search_fields">
+                        <!-- Search inputs -->
+                        <div class="col-md-6">
+                            <div class="input-group mb-3">
+                                <span class="input-group-text"><i class="fas fa-location-dot"></i></span>
+                                <input type="text" name="zipcode" class="form-control" placeholder="Enter Zipcode" value="{{ request.form.get('zipcode', '') }}">
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="input-group mb-3">
+                                <span class="input-group-text"><i class="fas fa-barcode"></i></span>
+                                <input type="text" name="upc" class="form-control" placeholder="Enter UPC" value="{{ request.form.get('upc', '') }}">
+                            </div>
+                        </div>
+                        
+                        <!-- State selection -->
+                        <div class="col-md-6">
+                            <label for="state" class="form-label"><i class="fas fa-map me-1"></i>State</label>
+                            <select name="state" id="state" class="form-select">
+                                <option value="">Select State</option>
+                                {% for s in states %}
+                                <option value="{{ s }}" {% if request.form.get('state') == s %}selected{% endif %}>{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <!-- City selection -->
+                        <div class="col-md-6">
+                            <label for="city" class="form-label"><i class="fas fa-city me-1"></i>City</label>
+                            <select name="city" id="city" class="form-select">
+                                <option value="">Select City</option>
+                                {% if request.form.get("city") %}
+                                <option value="{{ request.form.get('city') }}" selected>{{ request.form.get('city') }}</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Bulk Search Fields -->
+                    <div id="bulk_search_fields" style="display: none;">
+                        <div class="col-md-12">
+                            <div class="input-group mb-3">
+                                <span class="input-group-text"><i class="fas fa-barcode"></i></span>
+                                <input type="text" name="bulk_upc" class="form-control" placeholder="Enter UPC (applies to all zipcodes)">
+                            </div>
                         </div>
                     </div>
                     
-                    <div class="col-md-6">
-                        <div class="input-group mb-3">
-                            <span class="input-group-text"><i class="fas fa-barcode"></i></span>
-                            <input type="text" name="upc" class="form-control" placeholder="Enter UPC" value="{{ request.form.get('upc', '') }}">
-                        </div>
-                    </div>
-                    
-                    <!-- State selection -->
-                    <div class="col-md-6">
-                        <label for="state" class="form-label"><i class="fas fa-map me-1"></i>State</label>
-                        <select name="state" id="state" class="form-select">
-                            <option value="">Select State</option>
-                            {% for s in states %}
-                            <option value="{{ s }}" {% if request.form.get('state') == s %}selected{% endif %}>{{ s }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    <!-- City selection -->
-                    <div class="col-md-6">
-                        <label for="city" class="form-label"><i class="fas fa-city me-1"></i>City</label>
-                        <select name="city" id="city" class="form-select">
-                            <option value="">Select City</option>
-                            {% if request.form.get("city") %}
-                            <option value="{{ request.form.get('city') }}" selected>{{ request.form.get('city') }}</option>
-                            {% endif %}
-                        </select>
-                    </div>
-                    
-                    <!-- Price input -->
+                    <!-- Price input (common to both modes) -->
                     <div class="col-md-12">
                         <label for="price" class="form-label"><i class="fas fa-dollar-sign me-1"></i>Max Price</label>
                         <input type="text" name="price" class="form-control" placeholder="Enter Price" value="{{ request.form.get('price', '') }}">
@@ -150,7 +289,7 @@
                     <!-- Submit button -->
                     <div class="col-12 text-center mt-4">
                         <button type="submit" class="btn btn-primary btn-lg">
-                            <i class="fas fa-file-export me-2"></i>Export Results
+                            <i class="fas fa-file-export me-2"></i><span id="submit_text">Export Results</span>
                         </button>
                     </div>
                 </form>
@@ -205,6 +344,90 @@
     </div>
     
     <script>
+        // Search mode toggle functionality
+        document.querySelectorAll('input[name="search_mode"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                const searchMode = this.value;
+                document.getElementById('search_mode_input').value = searchMode;
+                
+                if (searchMode === 'bulk') {
+                    document.getElementById('csv_upload_section').style.display = 'block';
+                    document.getElementById('single_search_fields').style.display = 'none';
+                    document.getElementById('bulk_search_fields').style.display = 'block';
+                    document.getElementById('submit_text').textContent = 'Export Bulk Results';
+                } else {
+                    document.getElementById('csv_upload_section').style.display = 'none';
+                    document.getElementById('single_search_fields').style.display = 'block';
+                    document.getElementById('bulk_search_fields').style.display = 'none';
+                    document.getElementById('submit_text').textContent = 'Export Results';
+                }
+            });
+        });
+
+        // File upload handling
+        const csvFileInput = document.getElementById('csv_file');
+        const uploadedFileInfo = document.getElementById('uploaded_file_info');
+        const fileName = document.getElementById('file_name');
+        const removeFileBtn = document.getElementById('remove_file');
+        const csvUploadSection = document.getElementById('csv_upload_section');
+
+        csvFileInput.addEventListener('change', function(e) {
+            console.log('File input changed:', e.target.files);
+            const file = e.target.files[0];
+            if (file) {
+                console.log('File selected:', file.name, file.size, file.type);
+                fileName.textContent = file.name;
+                uploadedFileInfo.style.display = 'block';
+                
+                // Copy the file to the hidden form input
+                const formFileInput = document.getElementById('form_csv_file');
+                formFileInput.files = e.target.files;
+                console.log('File copied to form input:', formFileInput.files[0]);
+            } else {
+                console.log('No file selected');
+                uploadedFileInfo.style.display = 'none';
+            }
+        });
+
+        removeFileBtn.addEventListener('click', function() {
+            console.log('Removing file');
+            csvFileInput.value = '';
+            document.getElementById('form_csv_file').value = '';
+            uploadedFileInfo.style.display = 'none';
+        });
+
+        // Drag and drop functionality
+        csvUploadSection.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            csvUploadSection.classList.add('dragover');
+        });
+
+        csvUploadSection.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            csvUploadSection.classList.remove('dragover');
+        });
+
+        csvUploadSection.addEventListener('drop', function(e) {
+            e.preventDefault();
+            csvUploadSection.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                const fileName = file.name.toLowerCase();
+                
+                // Check if file is CSV or Excel
+                if (fileName.endsWith('.csv') || fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                    csvFileInput.files = files;
+                    document.getElementById('file_name').textContent = files[0].name;
+                    uploadedFileInfo.style.display = 'block';
+                } else {
+                    alert('Please upload a CSV or Excel file (.csv, .xlsx, .xls)');
+                }
+            }
+        });
+
+        // City dropdown population (existing functionality)
         document.getElementById("state").addEventListener("change", function () {
             let state = this.value;
             let cityDropdown = document.getElementById("city");
@@ -223,6 +446,44 @@
                         cityDropdown.appendChild(option);
                     });
                 });
+            }
+        });
+
+        // Form validation
+        document.getElementById('search_form').addEventListener('submit', function(e) {
+            const searchMode = document.getElementById('search_mode_input').value;
+            console.log('Form submission - Search mode:', searchMode);
+            
+            if (searchMode === 'bulk') {
+                const csvFile = document.getElementById('csv_file').files[0];
+                const formCsvFile = document.getElementById('form_csv_file').files[0];
+                console.log('Bulk search - Display file check:', csvFile);
+                console.log('Bulk search - Form file check:', formCsvFile);
+                
+                if (!csvFile) {
+                    e.preventDefault();
+                    alert('Please upload a CSV or Excel file for bulk search.');
+                    return false;
+                }
+                
+                // Ensure the form file input has the file
+                if (!formCsvFile) {
+                    const formFileInput = document.getElementById('form_csv_file');
+                    formFileInput.files = document.getElementById('csv_file').files;
+                    console.log('File copied to form input during submit:', formFileInput.files[0]);
+                }
+                
+                // Validate file extension
+                const fileName = csvFile.name.toLowerCase();
+                console.log('File name:', fileName);
+                
+                if (!fileName.endsWith('.csv') && !fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+                    e.preventDefault();
+                    alert('Please upload a valid CSV or Excel file (.csv, .xlsx, .xls)');
+                    return false;
+                }
+                
+                console.log('File validation passed, submitting form');
             }
         });
     </script>
