@@ -10,7 +10,7 @@ from utils import init_utils
 from routes import main, admin, max_prices
 
 # Initialize app
-Config.init_app()
+
 app = Flask(__name__)
 app.secret_key = Config.SECRET_KEY
 
