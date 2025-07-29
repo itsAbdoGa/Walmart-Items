@@ -1,29 +1,24 @@
 import json
-import csv
 import os
 import time
 import grequests
 from gevent.lock import Semaphore
-from gevent.event import Event
 from gevent.queue import Queue
+from gevent import queue
 import gevent
 from config import Config
 from core.database import get_db_connection
 from utils import log_message
-import pandas as pd
-from flask import Flask,g
+from flask import Flask
+from enum import IntEnum
 
 
-# Global state
-csv_processing = False
-processing_lock = Semaphore()
-upload_cancel_event = Event()
-csv_queue = Queue()
 app = Flask(__name__)
 
 UPCZIP_DB = Config.UPCZIP_DB
 API_URL = Config.API_URL
 DATABASE = Config.DATABASE
+UPLOAD_FOLDER = Config.UPLOAD_FOLDER
 
 
 
@@ -117,70 +112,151 @@ def process_entry(upc, zip_code):
     return True
 
 
-def csv_worker():
-    """Worker that processes CSV or XLSX files from the queue."""
-    while True:
-        filepath = csv_queue.get()  # Block until a file is available
-        try:
-            with app.app_context():
-                log_message(f"Processing file: {filepath}")
-                g.success_count = 0
-                g.error_count = 0
+class Priority(IntEnum):
+    HIGH = 1    # Manual input (higher priority)
+    LOW = 2     # CSV batch processing (lower priority)
 
-                # Read file based on extension
-                ext = os.path.splitext(filepath)[1].lower()
-                if ext == ".csv":
-                    df = pd.read_csv(filepath, dtype=str, encoding="utf-8")
-                elif ext == ".xlsx":
-                    df = pd.read_excel(filepath, dtype=str)
-                else:
-                    log_message(f"Unsupported file format: {ext}")
-                    os.remove(filepath)
-                    continue
-
-                # Normalize column headers
-                original_headers = list(df.columns)
-                normalized_headers = {col.strip().lower() for col in original_headers}
-                required_headers = {"upc", "zip"}
-
-                if not required_headers.issubset(normalized_headers):
-                    os.remove(filepath)
-                    log_message(f"Deleted {filepath} - Missing UPC/Zip headers, found instead {original_headers}")
-                    continue
-
-                # Normalize column names in the DataFrame
-                df.columns = [col.strip().lower() for col in df.columns]
-
-                rows = df.to_dict(orient="records")
-                log_message(f"FOUND: {len(rows)} COMBOS")
-
-                for counter, row in enumerate(rows):
-                    log_message(f"PROCESSING: {counter + 1} / {len(rows)} Combo")
-
-                    if upload_cancel_event.is_set():
-                        log_message("PROCESS CANCELLED BY USER")
-                        os.remove(filepath)
-                        break
-
-                    upc = row.get("upc")
-                    zip_code = row.get("zip")
-
-                    g.success_count = getattr(g, 'success_count', 0)
-                    g.error_count = getattr(g, 'error_count', 0)
-
-                    if process_entry(upc, zip_code):
-                        g.success_count += 1
-                    else:
-                        g.error_count += 1
-
-                log_message(f"Processing complete. Successes: {g.success_count}, Errors: {g.error_count}")
-
-        except Exception as e:
-            log_message(f"Error processing file: {e}")
-        finally:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-
+# Replace your existing csv_queue with a priority queue
+priority_queue = queue.PriorityQueue()
+processing_worker = None
+csv_processing = False
 
 def start_processing_worker():
-    gevent.spawn(csv_worker)
+    """Start the background worker greenlet if not already running"""
+    global processing_worker
+    if processing_worker is None or processing_worker.dead:
+        processing_worker = gevent.spawn(queue_worker)
+
+def queue_worker():
+    """Background worker that processes items from the priority queue"""
+    global csv_processing
+    
+    while True:
+        try:
+            # Get item from priority queue (blocks until available)
+            priority, item_type, data = priority_queue.get()
+            
+            if item_type == "manual":
+                upc, zip_code = data
+                log_message(f"Processing HIGH PRIORITY manual entry: UPC {upc}, ZIP {zip_code}")
+                success = process_entry(upc, zip_code)
+                log_message(f"Manual entry processed: {'success' if success else 'failed'}")
+                
+            elif item_type == "csv":
+                if isinstance(data, tuple):
+                    # New format with row tracking
+                    filepath, start_row, total_rows = data
+                    csv_processing = True
+                    log_message(f"Processing CSV file: {filepath}")
+                    process_csv_file(filepath, start_row, total_rows)
+                else:
+                    # Original format (backward compatibility)
+                    filepath = data
+                    csv_processing = True
+                    log_message(f"Processing CSV file: {filepath}")
+                    process_csv_file(filepath)
+                csv_processing = False
+                
+            # gevent.queue doesn't have task_done(), just continue
+            
+        except Exception as e:
+            log_message(f"Error in queue worker: {e}")
+            csv_processing = False
+
+def process_csv_file(filepath, start_row=0, total_original_rows=None):
+    """Process a CSV file row by row, allowing interruption for high priority items"""
+    try:
+        import pandas as pd
+        
+        # Read the CSV/Excel file
+        if filepath.endswith('.xlsx') or filepath.endswith('.xls'):
+            df = pd.read_excel(filepath, engine='openpyxl')
+        else:
+            df = pd.read_csv(filepath)
+        
+        # Calculate total rows for progress tracking
+        if total_original_rows is None:
+            total_original_rows = len(df)
+            current_start = 1
+        else:
+            current_start = start_row + 1
+            
+        log_message(f"Starting CSV processing: {len(df)} rows (rows {current_start}-{start_row + len(df)} of {total_original_rows} total)")
+        
+        for index, row in df.iterrows():
+            # Check if there are higher priority items waiting
+            if not priority_queue.empty():
+                # Peek at the next item to check priority
+                try:
+                    # Create a temporary list to check priorities without consuming items
+                    temp_items = []
+                    has_high_priority = False
+                    
+                    # Check up to 5 items in queue for high priority
+                    for _ in range(min(5, priority_queue.qsize())):
+                        try:
+                            item = priority_queue.get_nowait()
+                            temp_items.append(item)
+                            if item[0] == Priority.HIGH:
+                                has_high_priority = True
+                        except queue.Empty:
+                            break
+                    
+                    # Put items back in queue
+                    for item in temp_items:
+                        priority_queue.put(item)
+                    
+                    if has_high_priority:
+                        log_message("Pausing CSV processing for high priority manual input")
+                        # Re-queue the remaining CSV data
+                        remaining_df = df.iloc[index:]
+                        if len(remaining_df) > 0:
+                            # Preserve original file format
+                            base_name = os.path.splitext(os.path.basename(filepath))[0]
+                            original_ext = os.path.splitext(filepath)[1]
+                            temp_filepath = f"temp_{int(time.time())}_{base_name}{original_ext}"
+                            temp_full_path = os.path.join(UPLOAD_FOLDER, temp_filepath)
+                            
+                            # Save in same format as original
+                            if original_ext.lower() in ['.xlsx', '.xls']:
+                                remaining_df.to_excel(temp_full_path, index=False, engine='openpyxl')
+                            else:
+                                remaining_df.to_csv(temp_full_path, index=False)
+                            
+                            # Calculate the new start row for the remaining data
+                            new_start_row = start_row + index
+                            priority_queue.put((Priority.LOW, "csv", (temp_full_path, new_start_row, total_original_rows)))
+                            log_message(f"Remaining {len(remaining_df)} rows re-queued as {temp_filepath} (continuing from row {new_start_row + 1})")
+                        return  # Exit current CSV processing
+                        
+                except (queue.Empty, IndexError):
+                    pass  # No items or error checking queue
+            
+            # Process current row
+            actual_row_number = start_row + index + 1
+            upc = row.get('upc') or row.get('UPC') or row.get('Upc')
+            zip_code = row.get('zip') or row.get('ZIP') or row.get('Zip')
+            
+            if upc and zip_code:
+                log_message(f"Processing CSV row {actual_row_number}/{total_original_rows}: UPC {upc}, ZIP {zip_code}")
+                success = process_entry(str(upc), str(zip_code))
+                if not success:
+                    log_message(f"Failed to process row {actual_row_number}")
+            else:
+                log_message(f"Skipping row {actual_row_number}/{total_original_rows}: missing UPC or ZIP")
+            
+            # Yield control to allow other greenlets to run
+            gevent.sleep(0.01)
+            
+        log_message(f"Completed CSV processing: {filepath}")
+            
+    except Exception as e:
+        log_message(f"Error processing CSV file {filepath}: {e}")
+    finally:
+        # Clean up temporary file if it exists
+        if os.path.basename(filepath).startswith("temp_"):
+            try:
+                os.remove(filepath)
+                log_message(f"Cleaned up temporary file: {filepath}")
+            except Exception as e:
+                log_message(f"Error cleaning up temp file: {e}")
